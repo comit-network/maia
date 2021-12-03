@@ -1,3 +1,5 @@
+use bdk::wallet::coin_selection::CoinSelectionAlgorithm;
+use bdk::wallet::tx_builder::CreateTx;
 pub use transaction_ext::TransactionExt;
 pub use transactions::{close_transaction, punish_transaction};
 
@@ -16,8 +18,7 @@ use bdk::database::BatchDatabase;
 use bdk::descriptor::Descriptor;
 use bdk::miniscript::descriptor::Wsh;
 use bdk::miniscript::DescriptorTrait;
-use bdk::wallet::AddressIndex;
-use bdk::FeeRate;
+use bdk::TxBuilder;
 use itertools::Itertools;
 use secp256k1_zkp::{self, schnorrsig, EcdsaAdaptorSignature, SecretKey, Signature, SECP256K1};
 use std::collections::HashMap;
@@ -35,31 +36,20 @@ mod txin_ext;
 const DUMMY_2OF2_MULTISIG: &str =
     "0020b5aa99ed7e0fa92483eb045ab8b7a59146d4d9f6653f21ba729b4331895a5b46";
 
-pub trait WalletExt {
-    fn build_party_params(&self, amount: Amount, identity_pk: PublicKey) -> Result<PartyParams>;
+pub trait TxBuilderExt {
+    fn add_2of2_multisig_recipient(&mut self, amount: Amount) -> &mut Self;
 }
 
-impl<B, D> WalletExt for bdk::Wallet<B, D>
+impl<'w, B, D, CS> TxBuilderExt for TxBuilder<'_, B, D, CS, CreateTx>
 where
     D: BatchDatabase,
+    CS: CoinSelectionAlgorithm<D>,
 {
-    fn build_party_params(&self, amount: Amount, identity_pk: PublicKey) -> Result<PartyParams> {
-        let mut builder = self.build_tx();
-        builder
-            .ordering(bdk::wallet::tx_builder::TxOrdering::Bip69Lexicographic)
-            .fee_rate(FeeRate::from_sat_per_vb(1.0))
-            .add_recipient(
-                DUMMY_2OF2_MULTISIG.parse().expect("Should be valid script"),
-                amount.as_sat(),
-            );
-        let (lock_psbt, _) = builder.finish()?;
-        let address = self.get_address(AddressIndex::New)?.address;
-        Ok(PartyParams {
-            lock_psbt,
-            identity_pk,
-            lock_amount: amount,
-            address,
-        })
+    fn add_2of2_multisig_recipient(&mut self, amount: Amount) -> &mut Self {
+        self.add_recipient(
+            DUMMY_2OF2_MULTISIG.parse().expect("Should be valid script"),
+            amount.as_sat(),
+        )
     }
 }
 

@@ -4,13 +4,13 @@ use bdk::bitcoin::{Address, Amount, Network, PrivateKey, PublicKey, Transaction}
 use bdk::descriptor::Descriptor;
 use bdk::miniscript::DescriptorTrait;
 use bdk::wallet::AddressIndex;
-use bdk::SignOptions;
+use bdk::{FeeRate, SignOptions};
 use bitcoin::util::psbt::PartiallySignedTransaction;
 use maia::{
     close_transaction, commit_descriptor, compute_adaptor_pk, create_cfd_transactions,
     finalize_spend_transaction, generate_payouts, interval, lock_descriptor, punish_transaction,
-    renew_cfd_transactions, spending_tx_sighash, Announcement, Cets, CfdTransactions, Payout,
-    PunishParams, TransactionExt, WalletExt,
+    renew_cfd_transactions, spending_tx_sighash, Announcement, Cets, CfdTransactions, PartyParams,
+    Payout, PunishParams, TransactionExt, TxBuilderExt,
 };
 use rand::{thread_rng, CryptoRng, RngCore};
 use secp256k1_zkp::{schnorrsig, EcdsaAdaptorSignature, SecretKey, Signature, SECP256K1};
@@ -391,12 +391,36 @@ fn create_cfd_txs(
     let (maker_pub_sk, maker_pub_pk) = make_keypair(rng);
     let (taker_rev_sk, taker_rev_pk) = make_keypair(rng);
     let (taker_pub_sk, taker_pub_pk) = make_keypair(rng);
-    let maker_params = maker_wallet
-        .build_party_params(maker_lock_amount, maker_pk)
-        .unwrap();
-    let taker_params = taker_wallet
-        .build_party_params(taker_lock_amount, taker_pk)
-        .unwrap();
+
+    let maker_params = PartyParams {
+        lock_psbt: {
+            let mut builder = maker_wallet.build_tx();
+
+            builder
+                .fee_rate(FeeRate::from_sat_per_vb(1.0))
+                .add_2of2_multisig_recipient(maker_lock_amount);
+
+            builder.finish().unwrap().0
+        },
+        identity_pk: maker_pk,
+        lock_amount: maker_lock_amount,
+        address: maker_wallet.get_address(AddressIndex::New).unwrap().address,
+    };
+
+    let taker_params = PartyParams {
+        lock_psbt: {
+            let mut builder = taker_wallet.build_tx();
+
+            builder
+                .fee_rate(FeeRate::from_sat_per_vb(1.0))
+                .add_2of2_multisig_recipient(taker_lock_amount);
+
+            builder.finish().unwrap().0
+        },
+        identity_pk: taker_pk,
+        lock_amount: taker_lock_amount,
+        address: taker_wallet.get_address(AddressIndex::New).unwrap().address,
+    };
 
     let maker_cfd_txs = create_cfd_transactions(
         (
