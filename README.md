@@ -5,4 +5,3 @@ _Maia (/ˈmeɪ.ə/; Ancient Greek: Μαῖα; Latin: Maia), in ancient Greek rel
 A library for CFD trading on Bitcoin.
 
 Details coming soon.
-
