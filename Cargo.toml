@@ -5,7 +5,7 @@ edition = "2018"
 
 [dependencies]
 anyhow = "1"
-bdk = { version = "0.14", default-features = false }
+bdk = { version = "0.14.1-dev", default-features = false }
 bit-vec = "0.6"
 itertools = "0.10"
 rand = "0.6"
@@ -18,3 +18,4 @@ proptest = { version = "1", default-features = false, features = ["std"] }
 
 [patch.crates-io]
 secp256k1-zkp = { git = "https://github.com/ElementsProject/rust-secp256k1-zkp", rev = "ddc5e2629797ca00633a7f9807574edf3d61f3d3" } # Latest master has crucial patches.
+bdk = { git = "https://github.com/bitcoindevkit/bdk" }
