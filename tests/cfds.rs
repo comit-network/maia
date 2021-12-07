@@ -217,6 +217,7 @@ fn renew_cfd() {
         (cet_timelock, refund_timelock),
         payouts_per_event.clone(),
         maker.sk,
+        1,
     )
     .unwrap();
 
@@ -244,6 +245,7 @@ fn renew_cfd() {
         (cet_timelock, refund_timelock),
         payouts_per_event,
         taker.sk,
+        1,
     )
     .unwrap();
 
@@ -441,6 +443,7 @@ fn create_cfd_txs(
         (cet_timelock, refund_timelock),
         payouts_per_event.clone(),
         maker_sk,
+        1,
     )
     .unwrap();
     let taker_cfd_txs = create_cfd_transactions(
@@ -462,6 +465,7 @@ fn create_cfd_txs(
         (cet_timelock, refund_timelock),
         payouts_per_event,
         taker_sk,
+        1,
     )
     .unwrap();
     (

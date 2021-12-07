@@ -99,6 +99,7 @@ impl CommitTransaction {
         lock_tx: &Transaction,
         (maker_pk, maker_rev_pk, maker_publish_pk): (PublicKey, PublicKey, PublicKey),
         (taker_pk, taker_rev_pk, taker_publish_pk): (PublicKey, PublicKey, PublicKey),
+        fee_rate: u32,
     ) -> Result<Self> {
         let lock_descriptor = lock_descriptor(maker_pk, taker_pk);
         let (lock_outpoint, lock_amount) = {
@@ -131,7 +132,7 @@ impl CommitTransaction {
             input: vec![lock_input],
             output: vec![output],
         };
-        let fee = Fee::new(Self::SIGNED_VBYTES);
+        let fee = Fee::new(Self::SIGNED_VBYTES, fee_rate as f64);
 
         let commit_tx_amount = lock_amount - fee.as_u64();
         inner.output[0].value = commit_tx_amount;
@@ -223,7 +224,7 @@ impl ContractExecutionTransaction {
             ..Default::default()
         };
 
-        let fee = Fee::new(Self::SIGNED_VBYTES).add(commit_tx.fee() as f64);
+        let fee = Fee::new_with_default_rate(Self::SIGNED_VBYTES).add(commit_tx.fee() as f64);
         let output = payout
             .with_updated_fee(
                 Amount::from_sat(fee.as_u64()),
@@ -371,7 +372,7 @@ pub fn close_transaction(
     // TODO: The fee could take into account the network state in this
     // case, since this transaction is to be broadcast immediately
     // after building and signing it
-    let (maker_fee, taker_fee) = Fee::new(SIGNED_VBYTES).split();
+    let (maker_fee, taker_fee) = Fee::new_with_default_rate(SIGNED_VBYTES).split();
 
     let maker_output = TxOut {
         value: maker_amount.as_sat() - maker_fee,
@@ -501,9 +502,13 @@ struct Fee {
 }
 
 impl Fee {
-    fn new(signed_vbytes: f64) -> Self {
-        let fee = signed_vbytes * SATS_PER_VBYTE;
+    fn new(signed_vbytes: f64, rate: f64) -> Self {
+        let fee = signed_vbytes * rate;
         Self { fee }
+    }
+
+    fn new_with_default_rate(signed_vbytes: f64) -> Self {
+        Self::new(signed_vbytes, SATS_PER_VBYTE)
     }
 
     #[must_use]
@@ -532,7 +537,7 @@ mod tests {
     proptest! {
         #[test]
         fn test_fee_always_above_min_relay_fee(signed_vbytes in 1.0f64..100_000_000.0f64) {
-            let fee = Fee::new(signed_vbytes);
+            let fee = Fee::new_with_default_rate(signed_vbytes);
             let (maker_fee, taker_fee) = fee.split();
 
             prop_assert!(signed_vbytes <= fee.as_u64() as f64);
@@ -546,7 +551,7 @@ mod tests {
     fn test_splitting_fee_1_0() {
         const SIGNED_VBYTES_TEST: f64 = 1.0;
 
-        let fee = Fee::new(SIGNED_VBYTES_TEST);
+        let fee = Fee::new_with_default_rate(SIGNED_VBYTES_TEST);
         let (maker_fee, taker_fee) = fee.split();
 
         assert_eq!(fee.as_u64(), 1);
@@ -559,7 +564,7 @@ mod tests {
     fn test_splitting_fee_2_0() {
         const SIGNED_VBYTES_TEST: f64 = 2.0;
 
-        let fee = Fee::new(SIGNED_VBYTES_TEST);
+        let fee = Fee::new_with_default_rate(SIGNED_VBYTES_TEST);
         let (maker_fee, taker_fee) = fee.split();
 
         assert_eq!(fee.as_u64(), 2);
@@ -572,7 +577,7 @@ mod tests {
     fn test_splitting_fee_2_1() {
         const SIGNED_VBYTES_TEST: f64 = 2.1;
 
-        let fee = Fee::new(SIGNED_VBYTES_TEST);
+        let fee = Fee::new_with_default_rate(SIGNED_VBYTES_TEST);
         let (maker_fee, taker_fee) = fee.split();
 
         assert_eq!(fee.as_u64(), 3);
@@ -585,7 +590,7 @@ mod tests {
     fn test_splitting_fee_2_6() {
         const SIGNED_VBYTES_TEST: f64 = 2.6;
 
-        let fee = Fee::new(SIGNED_VBYTES_TEST);
+        let fee = Fee::new_with_default_rate(SIGNED_VBYTES_TEST);
         let (maker_fee, taker_fee) = fee.split();
 
         assert_eq!(fee.as_u64(), 3);

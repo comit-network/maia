@@ -77,6 +77,7 @@ pub fn create_cfd_transactions(
     (cet_timelock, refund_timelock): (u32, u32),
     payouts_per_event: HashMap<Announcement, Vec<Payout>>,
     identity_sk: SecretKey,
+    commit_tx_fee_rate: u32,
 ) -> Result<CfdTransactions> {
     let lock_tx = lock_transaction(
         maker.lock_psbt.clone(),
@@ -104,9 +105,11 @@ pub fn create_cfd_transactions(
         (cet_timelock, refund_timelock),
         payouts_per_event,
         identity_sk,
+        commit_tx_fee_rate,
     )
 }
 
+#[allow(clippy::too_many_arguments)]
 pub fn renew_cfd_transactions(
     lock_tx: PartiallySignedTransaction,
     (maker_pk, maker_lock_amount, maker_address, maker_punish_params): (
@@ -125,6 +128,7 @@ pub fn renew_cfd_transactions(
     (cet_timelock, refund_timelock): (u32, u32),
     payouts_per_event: HashMap<Announcement, Vec<Payout>>,
     identity_sk: SecretKey,
+    commit_tx_fee_rate: u32,
 ) -> Result<CfdTransactions> {
     build_cfds(
         lock_tx,
@@ -144,9 +148,11 @@ pub fn renew_cfd_transactions(
         (cet_timelock, refund_timelock),
         payouts_per_event,
         identity_sk,
+        commit_tx_fee_rate,
     )
 }
 
+#[allow(clippy::too_many_arguments)]
 fn build_cfds(
     lock_tx: PartiallySignedTransaction,
     (maker_pk, maker_lock_amount, maker_address, maker_punish_params): (
@@ -165,6 +171,7 @@ fn build_cfds(
     (cet_timelock, refund_timelock): (u32, u32),
     payouts_per_event: HashMap<Announcement, Vec<Payout>>,
     identity_sk: SecretKey,
+    commit_tx_fee_rate: u32,
 ) -> Result<CfdTransactions> {
     let commit_tx = CommitTransaction::new(
         &lock_tx.global.unsigned_tx,
@@ -178,6 +185,7 @@ fn build_cfds(
             taker_punish_params.revocation_pk,
             taker_punish_params.publish_pk,
         ),
+        commit_tx_fee_rate,
     )
     .context("cannot build commit tx")?;
 
