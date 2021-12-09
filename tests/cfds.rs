@@ -352,6 +352,7 @@ fn collaboratively_close_cfd() {
         lock_amount,
         (&maker_addr, maker_amount),
         (&taker_addr, taker_amount),
+        1,
     )
     .expect("to build close tx");
 
