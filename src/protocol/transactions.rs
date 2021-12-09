@@ -359,6 +359,7 @@ pub fn close_transaction(
     lock_amount: Amount,
     (maker_address, maker_amount): (&Address, Amount),
     (taker_address, taker_amount): (&Address, Amount),
+    fee_rate: u32,
 ) -> Result<(Transaction, secp256k1_zkp::Message)> {
     /// Expected size of signed transaction in virtual bytes, plus a
     /// buffer to account for different signature lengths.
@@ -372,7 +373,7 @@ pub fn close_transaction(
     // TODO: The fee could take into account the network state in this
     // case, since this transaction is to be broadcast immediately
     // after building and signing it
-    let (maker_fee, taker_fee) = Fee::new_with_default_rate(SIGNED_VBYTES).split();
+    let (maker_fee, taker_fee) = Fee::new(SIGNED_VBYTES, fee_rate as f64).split();
 
     let maker_output = TxOut {
         value: maker_amount.as_sat() - maker_fee,
