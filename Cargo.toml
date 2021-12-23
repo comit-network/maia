@@ -5,7 +5,7 @@ edition = "2018"
 
 [dependencies]
 anyhow = "1"
-bdk = { version = "0.14.1-dev", default-features = false }
+bdk = { version = "0.15", default-features = false }
 bit-vec = "0.6"
 itertools = "0.10"
 rand = "0.6"
@@ -15,6 +15,3 @@ thiserror = "1"
 [dev-dependencies]
 bitcoin = { version = "0.27", features = ["rand", "bitcoinconsensus"] }
 proptest = { version = "1", default-features = false, features = ["std"] }
-
-[patch.crates-io]
-bdk = { git = "https://github.com/bitcoindevkit/bdk" }
