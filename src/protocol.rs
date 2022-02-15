@@ -255,8 +255,8 @@ pub fn lock_descriptor(maker_pk: PublicKey, taker_pk: PublicKey) -> Descriptor<P
     let taker_pk = ToHex::to_hex(&taker_pk.key);
 
     let miniscript = MINISCRIPT_TEMPLATE
-        .replace("A", &maker_pk)
-        .replace("B", &taker_pk);
+        .replace('A', &maker_pk)
+        .replace('B', &taker_pk);
 
     let miniscript = miniscript.parse().expect("a valid miniscript");
 
@@ -268,12 +268,12 @@ pub fn commit_descriptor(
     (taker_own_pk, taker_rev_pk, taker_publish_pk): (PublicKey, PublicKey, PublicKey),
 ) -> Descriptor<PublicKey> {
     let maker_own_pk_hash = maker_own_pk.pubkey_hash().as_hash();
-    let maker_own_pk = (&maker_own_pk.key.serialize().to_vec()).to_hex();
+    let maker_own_pk = maker_own_pk.key.serialize().to_hex();
     let maker_publish_pk_hash = maker_publish_pk.pubkey_hash().as_hash();
     let maker_rev_pk_hash = maker_rev_pk.pubkey_hash().as_hash();
 
     let taker_own_pk_hash = taker_own_pk.pubkey_hash().as_hash();
-    let taker_own_pk = (&taker_own_pk.key.serialize().to_vec()).to_hex();
+    let taker_own_pk = taker_own_pk.key.serialize().to_hex();
     let taker_publish_pk_hash = taker_publish_pk.pubkey_hash().as_hash();
     let taker_rev_pk_hash = taker_rev_pk.pubkey_hash().as_hash();
 
