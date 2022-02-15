@@ -15,7 +15,14 @@ const BASE: usize = 2;
 
 /// Binary representation of a price interval.
 #[derive(Clone, Debug, PartialEq)]
-pub struct Digits(BitVec);
+pub struct Digits {
+    inner: BitVec,
+
+    /// The precomputed range represents by these `Digits`.
+    ///
+    /// This is pre-computed for performance reasons.
+    range: RangeInclusive<u64>,
+}
 
 impl Digits {
     pub fn new(range: RangeInclusive<u64>) -> Result<Vec<Self>, Error> {
@@ -37,46 +44,53 @@ impl Digits {
         .iter()
         .map(|digits| {
             let digits = digits.iter().map(|n| *n != 0).collect::<BitVec>();
-            Digits(digits)
+            Digits {
+                inner: digits.clone(),
+                range: compute_range(digits),
+            }
         })
         .collect();
 
         Ok(digits)
     }
 
-    /// Calculate the range of prices expressed by these digits.
+    /// Return the range of prices expressed by these digits.
     ///
-    /// With the resulting range one can assess wether a particular
+    /// With the resulting range one can assess whether a particular
     /// price corresponds to the described interval.
     pub fn range(&self) -> RangeInclusive<u64> {
-        let missing_bits = MAX_DIGITS - self.0.len();
-
-        let mut bits = self.0.clone();
-        bits.append(&mut BitVec::from_elem(missing_bits, false));
-        let start = bits.as_u64();
-
-        let mut bits = self.0.clone();
-        bits.append(&mut BitVec::from_elem(missing_bits, true));
-        let end = bits.as_u64();
-
-        start..=end
+        self.range.clone()
     }
 
     /// Map each bit to its index in the set {0, 1}, starting at 1.
     pub fn to_indices(&self) -> Vec<NonZeroU8> {
-        self.0
+        self.inner
             .iter()
             .map(|bit| NonZeroU8::new(if bit { 2u8 } else { 1u8 }).expect("1 and 2 are non-zero"))
             .collect()
     }
 
     pub fn len(&self) -> usize {
-        self.0.len()
+        self.inner.len()
     }
 
     pub fn is_empty(&self) -> bool {
-        self.0.is_empty()
+        self.inner.is_empty()
     }
+}
+
+fn compute_range(digits: BitVec) -> RangeInclusive<u64> {
+    let missing_bits = MAX_DIGITS - digits.len();
+
+    let mut bits = digits.clone();
+    bits.append(&mut BitVec::from_elem(missing_bits, false));
+    let start = bits.as_u64();
+
+    let mut bits = digits;
+    bits.append(&mut BitVec::from_elem(missing_bits, true));
+    let end = bits.as_u64();
+
+    start..=end
 }
 
 #[derive(thiserror::Error, Debug)]
@@ -89,7 +103,7 @@ pub enum Error {
 
 impl Display for Digits {
     fn fmt(&self, f: &mut std::fmt::Formatter<'_>) -> std::fmt::Result {
-        self.0
+        self.inner
             .iter()
             .try_for_each(|digit| write!(f, "{}", digit as u8))?;
 
