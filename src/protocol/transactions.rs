@@ -86,7 +86,6 @@ pub(crate) struct CommitTransaction {
     descriptor: Descriptor<PublicKey>,
     amount: Amount,
     sighash: SigHash,
-    lock_descriptor: Descriptor<PublicKey>,
     fee: Fee,
 }
 
@@ -147,7 +146,6 @@ impl CommitTransaction {
         Ok(Self {
             inner,
             descriptor,
-            lock_descriptor,
             amount: Amount::from_sat(commit_tx_amount),
             sighash,
             fee,
@@ -195,7 +193,6 @@ pub(crate) struct ContractExecutionTransaction {
     inner: Transaction,
     index_nonce_pairs: Vec<(NonZeroU8, schnorrsig::PublicKey)>,
     sighash: SigHash,
-    commit_descriptor: Descriptor<PublicKey>,
 }
 
 impl ContractExecutionTransaction {
@@ -251,7 +248,6 @@ impl ContractExecutionTransaction {
             inner: tx,
             index_nonce_pairs,
             sighash,
-            commit_descriptor: commit_tx.descriptor(),
         })
     }
 
@@ -279,7 +275,6 @@ impl ContractExecutionTransaction {
 pub(crate) struct RefundTransaction {
     inner: Transaction,
     sighash: SigHash,
-    commit_output_descriptor: Descriptor<PublicKey>,
 }
 
 impl RefundTransaction {
@@ -323,8 +318,6 @@ impl RefundTransaction {
         tx.output[0].value -= (fee / 2.0) as u64;
         tx.output[1].value -= (fee / 2.0) as u64;
 
-        let commit_output_descriptor = commit_tx.descriptor();
-
         let sighash = SigHashCache::new(&tx).signature_hash(
             0,
             &commit_tx.descriptor().script_code(),
@@ -332,11 +325,7 @@ impl RefundTransaction {
             SigHashType::All,
         );
 
-        Self {
-            inner: tx,
-            sighash,
-            commit_output_descriptor,
-        }
+        Self { inner: tx, sighash }
     }
 
     pub(crate) fn sighash(&self) -> SigHash {
