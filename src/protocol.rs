@@ -329,7 +329,7 @@ pub fn finalize_spend_transaction(
     Ok(tx)
 }
 
-#[derive(Clone)]
+#[derive(Clone, Debug)]
 pub struct PartyParams {
     pub lock_psbt: PartiallySignedTransaction,
     pub identity_pk: PublicKey,
