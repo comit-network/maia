@@ -58,10 +58,10 @@ where
 ///
 /// # Arguments
 ///
-/// * `maker` - The initial parameters of the maker.
-/// * `maker_punish_params` - The punish parameters of the maker.
-/// * `taker` - The initial parameters of the taker.
-/// * `taker_punish_params` - The punish parameters of the taker.
+/// * `long` - The initial parameters of the party going long.
+/// * `long_punish_params` - The punish parameters of the party going long.
+/// * `short` - The initial parameters of the party going short.
+/// * `short_punish_params` - The punish parameters of the party going short.
 /// * `oracle_pk` - The public key of the oracle.
 /// * `cet_timelock` - Relative timelock of the CET transaction with respect to the commit
 ///   transaction.
@@ -71,8 +71,8 @@ where
 ///   the conditions of the bet. The key is the event at which the oracle will attest the price.
 /// * `identity_sk` - The secret key of the caller, used to sign and encsign different transactions.
 pub fn create_cfd_transactions(
-    (maker, maker_punish_params): (PartyParams, PunishParams),
-    (taker, taker_punish_params): (PartyParams, PunishParams),
+    (long, long_punish_params): (PartyParams, PunishParams),
+    (short, short_punish_params): (PartyParams, PunishParams),
     oracle_pk: schnorrsig::PublicKey,
     (cet_timelock, refund_timelock): (u32, u32),
     payouts_per_event: HashMap<Announcement, Vec<Payout>>,
@@ -80,26 +80,26 @@ pub fn create_cfd_transactions(
     commit_tx_fee_rate: u32,
 ) -> Result<CfdTransactions> {
     let lock_tx = lock_transaction(
-        maker.lock_psbt.clone(),
-        taker.lock_psbt.clone(),
-        maker.identity_pk,
-        taker.identity_pk,
-        maker.lock_amount + taker.lock_amount,
+        long.lock_psbt.clone(),
+        short.lock_psbt.clone(),
+        long.identity_pk,
+        short.identity_pk,
+        long.lock_amount + short.lock_amount,
     );
 
     build_cfds(
         lock_tx,
         (
-            maker.identity_pk,
-            maker.lock_amount,
-            maker.address,
-            maker_punish_params,
+            long.identity_pk,
+            long.lock_amount,
+            long.address,
+            long_punish_params,
         ),
         (
-            taker.identity_pk,
-            taker.lock_amount,
-            taker.address,
-            taker_punish_params,
+            short.identity_pk,
+            short.lock_amount,
+            short.address,
+            short_punish_params,
         ),
         oracle_pk,
         (cet_timelock, refund_timelock),
@@ -112,13 +112,13 @@ pub fn create_cfd_transactions(
 #[allow(clippy::too_many_arguments)]
 pub fn renew_cfd_transactions(
     lock_tx: PartiallySignedTransaction,
-    (maker_pk, maker_lock_amount, maker_address, maker_punish_params): (
+    (long_pk, long_lock_amount, long_address, long_punish_params): (
         PublicKey,
         Amount,
         Address,
         PunishParams,
     ),
-    (taker_pk, taker_lock_amount, taker_address, taker_punish_params): (
+    (short_pk, short_lock_amount, short_address, short_punish_params): (
         PublicKey,
         Amount,
         Address,
@@ -132,17 +132,12 @@ pub fn renew_cfd_transactions(
 ) -> Result<CfdTransactions> {
     build_cfds(
         lock_tx,
+        (long_pk, long_lock_amount, long_address, long_punish_params),
         (
-            maker_pk,
-            maker_lock_amount,
-            maker_address,
-            maker_punish_params,
-        ),
-        (
-            taker_pk,
-            taker_lock_amount,
-            taker_address,
-            taker_punish_params,
+            short_pk,
+            short_lock_amount,
+            short_address,
+            short_punish_params,
         ),
         oracle_pk,
         (cet_timelock, refund_timelock),
@@ -155,13 +150,13 @@ pub fn renew_cfd_transactions(
 #[allow(clippy::too_many_arguments)]
 fn build_cfds(
     lock_tx: PartiallySignedTransaction,
-    (maker_pk, maker_lock_amount, maker_address, maker_punish_params): (
+    (long_pk, long_lock_amount, long_address, long_punish_params): (
         PublicKey,
         Amount,
         Address,
         PunishParams,
     ),
-    (taker_pk, taker_lock_amount, taker_address, taker_punish_params): (
+    (short_pk, short_lock_amount, short_address, short_punish_params): (
         PublicKey,
         Amount,
         Address,
@@ -176,36 +171,36 @@ fn build_cfds(
     let commit_tx = CommitTransaction::new(
         &lock_tx.global.unsigned_tx,
         (
-            maker_pk,
-            maker_punish_params.revocation_pk,
-            maker_punish_params.publish_pk,
+            long_pk,
+            long_punish_params.revocation_pk,
+            long_punish_params.publish_pk,
         ),
         (
-            taker_pk,
-            taker_punish_params.revocation_pk,
-            taker_punish_params.publish_pk,
+            short_pk,
+            short_punish_params.revocation_pk,
+            short_punish_params.publish_pk,
         ),
         commit_tx_fee_rate,
     )
     .context("cannot build commit tx")?;
 
     let identity_pk = secp256k1_zkp::PublicKey::from_secret_key(SECP256K1, &identity_sk);
-    let commit_encsig = if identity_pk == maker_pk.key {
-        commit_tx.encsign(identity_sk, &taker_punish_params.publish_pk)
-    } else if identity_pk == taker_pk.key {
-        commit_tx.encsign(identity_sk, &maker_punish_params.publish_pk)
+    let commit_encsig = if identity_pk == long_pk.key {
+        commit_tx.encsign(identity_sk, &short_punish_params.publish_pk)
+    } else if identity_pk == short_pk.key {
+        commit_tx.encsign(identity_sk, &long_punish_params.publish_pk)
     } else {
-        bail!("identity sk does not belong to taker or maker")
+        bail!("identity sk does not belong to short or long")
     };
 
     let refund = {
         let tx = RefundTransaction::new(
             &commit_tx,
             refund_timelock,
-            &maker_address,
-            &taker_address,
-            maker_lock_amount,
-            taker_lock_amount,
+            &long_address,
+            &short_address,
+            long_lock_amount,
+            short_lock_amount,
         );
 
         let sighash = tx.sighash().to_message();
@@ -223,8 +218,8 @@ fn build_cfds(
                     let cet = ContractExecutionTx::new(
                         &commit_tx,
                         payout.clone(),
-                        &maker_address,
-                        &taker_address,
+                        &long_address,
+                        &short_address,
                         event.nonce_pks.as_slice(),
                         cet_timelock,
                     )?;
@@ -248,15 +243,15 @@ fn build_cfds(
     })
 }
 
-pub fn lock_descriptor(maker_pk: PublicKey, taker_pk: PublicKey) -> Descriptor<PublicKey> {
+pub fn lock_descriptor(long_pk: PublicKey, short_pk: PublicKey) -> Descriptor<PublicKey> {
     const MINISCRIPT_TEMPLATE: &str = "c:and_v(v:pk(A),pk_k(B))";
 
-    let maker_pk = ToHex::to_hex(&maker_pk.key);
-    let taker_pk = ToHex::to_hex(&taker_pk.key);
+    let long_pk = ToHex::to_hex(&long_pk.key);
+    let short_pk = ToHex::to_hex(&short_pk.key);
 
     let miniscript = MINISCRIPT_TEMPLATE
-        .replace('A', &maker_pk)
-        .replace('B', &taker_pk);
+        .replace('A', &long_pk)
+        .replace('B', &short_pk);
 
     let miniscript = miniscript.parse().expect("a valid miniscript");
 
@@ -264,31 +259,31 @@ pub fn lock_descriptor(maker_pk: PublicKey, taker_pk: PublicKey) -> Descriptor<P
 }
 
 pub fn commit_descriptor(
-    (maker_own_pk, maker_rev_pk, maker_publish_pk): (PublicKey, PublicKey, PublicKey),
-    (taker_own_pk, taker_rev_pk, taker_publish_pk): (PublicKey, PublicKey, PublicKey),
+    (long_own_pk, long_rev_pk, long_publish_pk): (PublicKey, PublicKey, PublicKey),
+    (short_own_pk, short_rev_pk, short_publish_pk): (PublicKey, PublicKey, PublicKey),
 ) -> Descriptor<PublicKey> {
-    let maker_own_pk_hash = maker_own_pk.pubkey_hash().as_hash();
-    let maker_own_pk = maker_own_pk.key.serialize().to_hex();
-    let maker_publish_pk_hash = maker_publish_pk.pubkey_hash().as_hash();
-    let maker_rev_pk_hash = maker_rev_pk.pubkey_hash().as_hash();
+    let long_own_pk_hash = long_own_pk.pubkey_hash().as_hash();
+    let long_own_pk = long_own_pk.key.serialize().to_hex();
+    let long_publish_pk_hash = long_publish_pk.pubkey_hash().as_hash();
+    let long_rev_pk_hash = long_rev_pk.pubkey_hash().as_hash();
 
-    let taker_own_pk_hash = taker_own_pk.pubkey_hash().as_hash();
-    let taker_own_pk = taker_own_pk.key.serialize().to_hex();
-    let taker_publish_pk_hash = taker_publish_pk.pubkey_hash().as_hash();
-    let taker_rev_pk_hash = taker_rev_pk.pubkey_hash().as_hash();
+    let short_own_pk_hash = short_own_pk.pubkey_hash().as_hash();
+    let short_own_pk = short_own_pk.key.serialize().to_hex();
+    let short_publish_pk_hash = short_publish_pk.pubkey_hash().as_hash();
+    let short_rev_pk_hash = short_rev_pk.pubkey_hash().as_hash();
 
     // raw script:
-    // or(and(pk(maker_own_pk),pk(taker_own_pk)),or(and(pk(maker_own_pk),and(pk(taker_publish_pk),
-    // pk(taker_rev_pk))),and(pk(taker_own_pk),and(pk(maker_publish_pk),pk(maker_rev_pk)))))
-    let full_script = format!("wsh(c:andor(pk({maker_own_pk}),pk_k({taker_own_pk}),or_i(and_v(v:pkh({maker_own_pk_hash}),and_v(v:pkh({taker_publish_pk_hash}),pk_h({taker_rev_pk_hash}))),and_v(v:pkh({taker_own_pk_hash}),and_v(v:pkh({maker_publish_pk_hash}),pk_h({maker_rev_pk_hash}))))))",
-        maker_own_pk = maker_own_pk,
-        taker_own_pk = taker_own_pk,
-        maker_own_pk_hash = maker_own_pk_hash,
-        taker_own_pk_hash = taker_own_pk_hash,
-        taker_publish_pk_hash = taker_publish_pk_hash,
-        taker_rev_pk_hash = taker_rev_pk_hash,
-        maker_publish_pk_hash = maker_publish_pk_hash,
-        maker_rev_pk_hash = maker_rev_pk_hash
+    // or(and(pk(long_own_pk),pk(short_own_pk)),or(and(pk(long_own_pk),and(pk(short_publish_pk),
+    // pk(short_rev_pk))),and(pk(short_own_pk),and(pk(long_publish_pk),pk(long_rev_pk)))))
+    let full_script = format!("wsh(c:andor(pk({long_own_pk}),pk_k({short_own_pk}),or_i(and_v(v:pkh({long_own_pk_hash}),and_v(v:pkh({short_publish_pk_hash}),pk_h({short_rev_pk_hash}))),and_v(v:pkh({short_own_pk_hash}),and_v(v:pkh({long_publish_pk_hash}),pk_h({long_rev_pk_hash}))))))",
+long_own_pk = long_own_pk,
+short_own_pk = short_own_pk,
+long_own_pk_hash = long_own_pk_hash,
+short_own_pk_hash = short_own_pk_hash,
+short_publish_pk_hash = short_publish_pk_hash,
+short_rev_pk_hash = short_rev_pk_hash,
+long_publish_pk_hash = long_publish_pk_hash,
+long_rev_pk_hash = long_rev_pk_hash
     );
 
     full_script.parse().expect("a valid miniscript")
@@ -386,22 +381,22 @@ impl PartialEq for Announcement {
 #[derive(Debug, Clone, PartialEq)]
 pub struct Payout {
     digits: interval::Digits,
-    maker_amount: Amount,
-    taker_amount: Amount,
+    long_amount: Amount,
+    short_amount: Amount,
 }
 
 pub fn generate_payouts(
     range: RangeInclusive<u64>,
-    maker_amount: Amount,
-    taker_amount: Amount,
+    long_amount: Amount,
+    short_amount: Amount,
 ) -> Result<Vec<Payout>> {
     let digits = interval::Digits::new(range).context("invalid interval")?;
     Ok(digits
         .into_iter()
         .map(|digits| Payout {
             digits,
-            maker_amount,
-            taker_amount,
+            long_amount,
+            short_amount,
         })
         .collect())
 }
@@ -411,18 +406,18 @@ impl Payout {
         &self.digits
     }
 
-    pub fn maker_amount(&self) -> &Amount {
-        &self.maker_amount
+    pub fn long_amount(&self) -> &Amount {
+        &self.long_amount
     }
 
-    pub fn taker_amount(&self) -> &Amount {
-        &self.taker_amount
+    pub fn short_amount(&self) -> &Amount {
+        &self.short_amount
     }
 
-    fn into_txouts(self, maker_address: &Address, taker_address: &Address) -> Vec<TxOut> {
+    fn into_txouts(self, long_address: &Address, short_address: &Address) -> Vec<TxOut> {
         let txouts = [
-            (self.maker_amount, maker_address),
-            (self.taker_amount, taker_address),
+            (self.long_amount, long_address),
+            (self.short_amount, short_address),
         ]
         .iter()
         .filter_map(|(amount, address)| {
@@ -446,34 +441,34 @@ impl Payout {
     fn with_updated_fee(
         self,
         fee: Amount,
-        dust_limit_maker: Amount,
-        dust_limit_taker: Amount,
+        dust_limit_long: Amount,
+        dust_limit_short: Amount,
     ) -> Result<Self> {
-        let maker_amount = self.maker_amount;
-        let taker_amount = self.taker_amount;
+        let long_amount = self.long_amount;
+        let short_amount = self.short_amount;
 
         let mut updated = self;
         match (
-            maker_amount
+            long_amount
                 .checked_sub(fee / 2)
-                .map(|a| a > dust_limit_maker)
+                .map(|a| a > dust_limit_long)
                 .unwrap_or(false),
-            taker_amount
+            short_amount
                 .checked_sub(fee / 2)
-                .map(|a| a > dust_limit_taker)
+                .map(|a| a > dust_limit_short)
                 .unwrap_or(false),
         ) {
             (true, true) => {
-                updated.maker_amount -= fee / 2;
-                updated.taker_amount -= fee / 2;
+                updated.long_amount -= fee / 2;
+                updated.short_amount -= fee / 2;
             }
             (false, true) => {
-                updated.maker_amount = Amount::ZERO;
-                updated.taker_amount = taker_amount - (fee + maker_amount);
+                updated.long_amount = Amount::ZERO;
+                updated.short_amount = short_amount - (fee + long_amount);
             }
             (true, false) => {
-                updated.maker_amount = maker_amount - (fee + taker_amount);
-                updated.taker_amount = Amount::ZERO;
+                updated.long_amount = long_amount - (fee + short_amount);
+                updated.short_amount = Amount::ZERO;
             }
             (false, false) => bail!("Amounts are too small, could not subtract fee."),
         }
@@ -512,12 +507,12 @@ mod tests {
         let dummy_address = Address::p2wpkh(&key, Network::Regtest).unwrap();
         let dummy_dust_limit = dummy_address.script_pubkey().dust_value();
 
-        let orig_maker_amount = 1000;
-        let orig_taker_amount = 1000;
+        let orig_long_amount = 1000;
+        let orig_short_amount = 1000;
         let payouts = generate_payouts(
             0..=10_000,
-            Amount::from_sat(orig_maker_amount),
-            Amount::from_sat(orig_taker_amount),
+            Amount::from_sat(orig_long_amount),
+            Amount::from_sat(orig_short_amount),
         )
         .unwrap();
         let fee = 100;
@@ -528,12 +523,12 @@ mod tests {
                 .unwrap();
 
             assert_eq!(
-                updated_payout.maker_amount,
-                Amount::from_sat(orig_maker_amount - fee / 2)
+                updated_payout.long_amount,
+                Amount::from_sat(orig_long_amount - fee / 2)
             );
             assert_eq!(
-                updated_payout.taker_amount,
-                Amount::from_sat(orig_taker_amount - fee / 2)
+                updated_payout.short_amount,
+                Amount::from_sat(orig_short_amount - fee / 2)
             );
         }
     }
@@ -546,12 +541,12 @@ mod tests {
         let dummy_address = Address::p2wpkh(&key, Network::Regtest).unwrap();
         let dummy_dust_limit = dummy_address.script_pubkey().dust_value();
 
-        let orig_maker_amount = dummy_dust_limit.as_sat() - 1;
-        let orig_taker_amount = 1000;
+        let orig_long_amount = dummy_dust_limit.as_sat() - 1;
+        let orig_short_amount = 1000;
         let payouts = generate_payouts(
             0..=10_000,
-            Amount::from_sat(orig_maker_amount),
-            Amount::from_sat(orig_taker_amount),
+            Amount::from_sat(orig_long_amount),
+            Amount::from_sat(orig_short_amount),
         )
         .unwrap();
         let fee = 100;
@@ -561,10 +556,10 @@ mod tests {
                 .with_updated_fee(Amount::from_sat(fee), dummy_dust_limit, dummy_dust_limit)
                 .unwrap();
 
-            assert_eq!(updated_payout.maker_amount, Amount::from_sat(0));
+            assert_eq!(updated_payout.long_amount, Amount::from_sat(0));
             assert_eq!(
-                updated_payout.taker_amount,
-                Amount::from_sat(orig_taker_amount - (fee + orig_maker_amount))
+                updated_payout.short_amount,
+                Amount::from_sat(orig_short_amount - (fee + orig_long_amount))
             );
         }
     }
