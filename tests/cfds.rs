@@ -373,7 +373,7 @@ fn create_cfd_txs(
     rng: &mut (impl RngCore + CryptoRng),
     (long_wallet, long_lock_amount): (&bdk::Wallet<(), bdk::database::MemoryDatabase>, Amount),
     (short_wallet, short_lock_amount): (&bdk::Wallet<(), bdk::database::MemoryDatabase>, Amount),
-    oracle_pk: schnorrsig::PublicKey,
+    oracle_pk: secp256k1_zkp::PublicKey,
     payouts_per_event: HashMap<Announcement, Vec<Payout>>,
     (cet_timelock, refund_timelock): (u32, u32),
 ) -> (
@@ -505,7 +505,7 @@ struct CfdKeys {
 fn verify_cfd_sigs(
     (long_cfd_txs, long_pk, long_publish_pk): (&CfdTransactions, PublicKey, PublicKey),
     (short_cfd_txs, short_pk, short_publish_pk): (&CfdTransactions, PublicKey, PublicKey),
-    (oracle_pk, events): (schnorrsig::PublicKey, Vec<Announcement>),
+    (oracle_pk, events): (secp256k1_zkp::PublicKey, Vec<Announcement>),
     (lock_desc, lock_amount): (&Descriptor<PublicKey>, Amount),
     (commit_desc, commit_amount): (&Descriptor<PublicKey>, Amount),
 ) {
@@ -929,7 +929,7 @@ fn verify_cet_encsig(
     encsig: &EcdsaAdaptorSignature,
     digits: &interval::Digits,
     pk: &secp256k1_zkp::PublicKey,
-    (oracle_pk, nonce_pks): (schnorrsig::PublicKey, &[schnorrsig::PublicKey]),
+    (oracle_pk, nonce_pks): (secp256k1_zkp::PublicKey, &[secp256k1_zkp::PublicKey]),
     spent_descriptor: &Descriptor<PublicKey>,
     spent_amount: Amount,
 ) -> Result<()> {
@@ -1046,8 +1046,8 @@ fn make_keypair(rng: &mut (impl RngCore + CryptoRng)) -> (SecretKey, PublicKey) 
 
 struct OliviaData {
     id: String,
-    pk: schnorrsig::PublicKey,
-    nonce_pks: Vec<schnorrsig::PublicKey>,
+    pk: secp256k1_zkp::PublicKey,
+    nonce_pks: Vec<secp256k1_zkp::PublicKey>,
     price: u64,
     attestations: Vec<SecretKey>,
 }
@@ -1074,13 +1074,15 @@ impl OliviaData {
     /// Generate an example of all the data from `olivia` needed to test the
     /// CFD protocol end-to-end.
     fn example(id: &str, price: u64, nonce_pks: &[&str], attestations: &[&str]) -> Self {
-        let oracle_pk = schnorrsig::PublicKey::from_str(Self::OLIVIA_PK).unwrap();
+        let oracle_pk = schnorrsig::PublicKey::from_str(Self::OLIVIA_PK)
+            .unwrap()
+            .to_public_key();
 
         let id = id.to_string();
 
         let nonce_pks = nonce_pks
             .iter()
-            .map(|pk| schnorrsig::PublicKey::from_str(pk).unwrap())
+            .map(|pk| schnorrsig::PublicKey::from_str(pk).unwrap().to_public_key())
             .collect();
 
         let attestations = attestations
@@ -1209,4 +1211,19 @@ fn assert_contains_cets_for_event(cets: &[Cets], event: &Announcement) {
         .expect("cet to correspond to existing event")
         .cets
         .is_empty());
+}
+
+pub trait PublicKeyExt {
+    fn to_public_key(self) -> secp256k1_zkp::PublicKey;
+}
+
+impl PublicKeyExt for schnorrsig::PublicKey {
+    fn to_public_key(self) -> secp256k1_zkp::PublicKey {
+        let mut buf = Vec::<u8>::with_capacity(33);
+
+        buf.push(0x02); // append even byte
+        buf.extend(&self.serialize());
+
+        secp256k1_zkp::PublicKey::from_slice(&buf).expect("valid key")
+    }
 }

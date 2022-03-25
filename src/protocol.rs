@@ -20,7 +20,7 @@ use bdk::miniscript::descriptor::Wsh;
 use bdk::miniscript::DescriptorTrait;
 use bdk::TxBuilder;
 use itertools::Itertools;
-use secp256k1_zkp::{self, schnorrsig, EcdsaAdaptorSignature, SecretKey, Signature, SECP256K1};
+use secp256k1_zkp::{self, EcdsaAdaptorSignature, SecretKey, Signature, SECP256K1};
 use std::collections::HashMap;
 use std::hash::Hasher;
 use std::iter::FromIterator;
@@ -73,7 +73,7 @@ where
 pub fn create_cfd_transactions(
     (long, long_punish_params): (PartyParams, PunishParams),
     (short, short_punish_params): (PartyParams, PunishParams),
-    oracle_pk: schnorrsig::PublicKey,
+    oracle_pk: secp256k1_zkp::PublicKey,
     (cet_timelock, refund_timelock): (u32, u32),
     payouts_per_event: HashMap<Announcement, Vec<Payout>>,
     identity_sk: SecretKey,
@@ -124,7 +124,7 @@ pub fn renew_cfd_transactions(
         Address,
         PunishParams,
     ),
-    oracle_pk: schnorrsig::PublicKey,
+    oracle_pk: secp256k1_zkp::PublicKey,
     (cet_timelock, refund_timelock): (u32, u32),
     payouts_per_event: HashMap<Announcement, Vec<Payout>>,
     identity_sk: SecretKey,
@@ -162,7 +162,7 @@ fn build_cfds(
         Address,
         PunishParams,
     ),
-    oracle_pk: schnorrsig::PublicKey,
+    oracle_pk: secp256k1_zkp::PublicKey,
     (cet_timelock, refund_timelock): (u32, u32),
     payouts_per_event: HashMap<Announcement, Vec<Payout>>,
     identity_sk: SecretKey,
@@ -363,7 +363,13 @@ pub struct Cets {
 #[derive(Debug, Clone, Eq)]
 pub struct Announcement {
     pub id: String,
-    pub nonce_pks: Vec<schnorrsig::PublicKey>,
+    pub nonce_pks: Vec<secp256k1_zkp::PublicKey>,
+}
+
+impl Announcement {
+    pub fn new(id: String, nonce_pks: Vec<secp256k1_zkp::PublicKey>) -> Self {
+        Self { id, nonce_pks }
+    }
 }
 
 impl std::hash::Hash for Announcement {
@@ -477,8 +483,8 @@ impl Payout {
 }
 
 pub fn compute_adaptor_pk(
-    oracle_pk: &schnorrsig::PublicKey,
-    index_nonce_pairs: &[(NonZeroU8, schnorrsig::PublicKey)],
+    oracle_pk: &secp256k1_zkp::PublicKey,
+    index_nonce_pairs: &[(NonZeroU8, secp256k1_zkp::PublicKey)],
 ) -> Result<secp256k1_zkp::PublicKey> {
     let attestation_pks = index_nonce_pairs
         .iter()

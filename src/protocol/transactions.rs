@@ -13,7 +13,7 @@ use bdk::bitcoin::{
 use bdk::descriptor::Descriptor;
 use bdk::miniscript::DescriptorTrait;
 use itertools::Itertools;
-use secp256k1_zkp::{self, schnorrsig, EcdsaAdaptorSignature, SecretKey, SECP256K1};
+use secp256k1_zkp::{self, EcdsaAdaptorSignature, SecretKey, SECP256K1};
 use std::collections::HashMap;
 use std::iter::FromIterator;
 use std::num::NonZeroU8;
@@ -191,7 +191,7 @@ impl CommitTransaction {
 #[derive(Debug, Clone)]
 pub(crate) struct ContractExecutionTransaction {
     inner: Transaction,
-    index_nonce_pairs: Vec<(NonZeroU8, schnorrsig::PublicKey)>,
+    index_nonce_pairs: Vec<(NonZeroU8, secp256k1_zkp::PublicKey)>,
     sighash: SigHash,
 }
 
@@ -205,7 +205,7 @@ impl ContractExecutionTransaction {
         payout: Payout,
         long_address: &Address,
         short_address: &Address,
-        nonce_pks: &[schnorrsig::PublicKey],
+        nonce_pks: &[secp256k1_zkp::PublicKey],
         relative_timelock_in_blocks: u32,
     ) -> Result<Self> {
         let index_nonce_pairs: Vec<_> = payout
@@ -254,7 +254,7 @@ impl ContractExecutionTransaction {
     pub(crate) fn encsign(
         &self,
         sk: SecretKey,
-        oracle_pk: &schnorrsig::PublicKey,
+        oracle_pk: &secp256k1_zkp::PublicKey,
     ) -> Result<EcdsaAdaptorSignature> {
         let adaptor_point = compute_adaptor_pk(oracle_pk, &self.index_nonce_pairs)?;
 
