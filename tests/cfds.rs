@@ -22,11 +22,11 @@ use std::str::FromStr;
 fn create_cfd() {
     let mut rng = thread_rng();
 
-    let long_lock_amount = Amount::ONE_BTC;
-    let short_lock_amount = Amount::ONE_BTC;
+    let maker_lock_amount = Amount::ONE_BTC;
+    let taker_lock_amount = Amount::ONE_BTC;
 
-    let long_wallet = build_wallet(&mut rng, Amount::from_btc(0.4).unwrap(), 5).unwrap();
-    let short_wallet = build_wallet(&mut rng, Amount::from_btc(0.4).unwrap(), 5).unwrap();
+    let maker_wallet = build_wallet(&mut rng, Amount::from_btc(0.4).unwrap(), 5).unwrap();
+    let taker_wallet = build_wallet(&mut rng, Amount::from_btc(0.4).unwrap(), 5).unwrap();
 
     let oracle_data_0 = OliviaData::example_0();
     let oracle_data_1 = OliviaData::example_1();
@@ -64,32 +64,32 @@ fn create_cfd() {
     let cet_timelock = 0;
     let refund_timelock = 0;
 
-    let (long_cfd_txs, short_cfd_txs, long, short, long_addr, short_addr) = create_cfd_txs(
+    let (maker_cfd_txs, taker_cfd_txs, maker, taker, maker_addr, taker_addr) = create_cfd_txs(
         &mut rng,
-        (&long_wallet, long_lock_amount),
-        (&short_wallet, short_lock_amount),
+        (&maker_wallet, maker_lock_amount),
+        (&taker_wallet, taker_lock_amount),
         oracle_pk,
         payouts_per_event,
         (cet_timelock, refund_timelock),
     );
 
-    assert_contains_cets_for_event(&long_cfd_txs.cets, &event_0);
-    assert_contains_cets_for_event(&long_cfd_txs.cets, &event_1);
-    assert_contains_cets_for_event(&short_cfd_txs.cets, &event_0);
-    assert_contains_cets_for_event(&short_cfd_txs.cets, &event_1);
+    assert_contains_cets_for_event(&maker_cfd_txs.cets, &event_0);
+    assert_contains_cets_for_event(&maker_cfd_txs.cets, &event_1);
+    assert_contains_cets_for_event(&taker_cfd_txs.cets, &event_0);
+    assert_contains_cets_for_event(&taker_cfd_txs.cets, &event_1);
 
-    let lock_desc = lock_descriptor(long.pk, short.pk);
-    let lock_amount = long_lock_amount + short_lock_amount;
+    let lock_desc = lock_descriptor(maker.pk, taker.pk);
+    let lock_amount = maker_lock_amount + taker_lock_amount;
 
     let commit_desc = commit_descriptor(
-        (long.pk, long.rev_pk, long.pub_pk),
-        (short.pk, short.rev_pk, short.pub_pk),
+        (maker.pk, maker.rev_pk, maker.pub_pk),
+        (taker.pk, taker.rev_pk, taker.pub_pk),
     );
-    let commit_amount = Amount::from_sat(long_cfd_txs.commit.0.output[0].value);
+    let commit_amount = Amount::from_sat(maker_cfd_txs.commit.0.output[0].value);
 
     verify_cfd_sigs(
-        (&long_cfd_txs, long.pk, long.pub_pk),
-        (&short_cfd_txs, short.pk, short.pub_pk),
+        (&maker_cfd_txs, maker.pk, maker.pub_pk),
+        (&taker_cfd_txs, taker.pk, taker.pub_pk),
         (oracle_pk, vec![event_0, event_1]),
         (&lock_desc, lock_amount),
         (&commit_desc, commit_amount),
@@ -97,24 +97,24 @@ fn create_cfd() {
 
     check_cfd_txs(
         (
-            long_wallet,
-            long_cfd_txs,
-            long.sk,
-            long.pk,
-            long.pub_sk,
-            long.pub_pk,
-            long.rev_sk,
-            long_addr,
+            maker_wallet,
+            maker_cfd_txs,
+            maker.sk,
+            maker.pk,
+            maker.pub_sk,
+            maker.pub_pk,
+            maker.rev_sk,
+            maker_addr,
         ),
         (
-            short_wallet,
-            short_cfd_txs,
-            short.sk,
-            short.pk,
-            short.pub_sk,
-            short.pub_pk,
-            short.rev_sk,
-            short_addr,
+            taker_wallet,
+            taker_cfd_txs,
+            taker.sk,
+            taker.pk,
+            taker.pub_sk,
+            taker.pub_pk,
+            taker.rev_sk,
+            taker_addr,
         ),
         &[oracle_data_0, oracle_data_1],
         (lock_desc, lock_amount),
@@ -126,11 +126,11 @@ fn create_cfd() {
 fn renew_cfd() {
     let mut rng = thread_rng();
 
-    let long_lock_amount = Amount::ONE_BTC;
-    let short_lock_amount = Amount::ONE_BTC;
+    let maker_lock_amount = Amount::ONE_BTC;
+    let taker_lock_amount = Amount::ONE_BTC;
 
-    let long_wallet = build_wallet(&mut rng, Amount::from_btc(0.4).unwrap(), 5).unwrap();
-    let short_wallet = build_wallet(&mut rng, Amount::from_btc(0.4).unwrap(), 5).unwrap();
+    let maker_wallet = build_wallet(&mut rng, Amount::from_btc(0.4).unwrap(), 5).unwrap();
+    let taker_wallet = build_wallet(&mut rng, Amount::from_btc(0.4).unwrap(), 5).unwrap();
 
     let oracle_data = OliviaData::example_0();
     let oracle_pk = oracle_data.pk;
@@ -153,10 +153,10 @@ fn renew_cfd() {
     let cet_timelock = 0;
     let refund_timelock = 0;
 
-    let (long_cfd_txs, short_cfd_txs, long, short, long_addr, short_addr) = create_cfd_txs(
+    let (maker_cfd_txs, taker_cfd_txs, maker, taker, maker_addr, taker_addr) = create_cfd_txs(
         &mut rng,
-        (&long_wallet, long_lock_amount),
-        (&short_wallet, short_lock_amount),
+        (&maker_wallet, maker_lock_amount),
+        (&taker_wallet, taker_lock_amount),
         oracle_pk,
         payouts_per_event,
         (cet_timelock, refund_timelock),
@@ -164,11 +164,11 @@ fn renew_cfd() {
 
     // renew cfd transactions
 
-    let (long_rev_sk, long_rev_pk) = make_keypair(&mut rng);
-    let (long_pub_sk, long_pub_pk) = make_keypair(&mut rng);
+    let (maker_rev_sk, maker_rev_pk) = make_keypair(&mut rng);
+    let (maker_pub_sk, maker_pub_pk) = make_keypair(&mut rng);
 
-    let (short_rev_sk, short_rev_pk) = make_keypair(&mut rng);
-    let (short_pub_sk, short_pub_pk) = make_keypair(&mut rng);
+    let (taker_rev_sk, taker_rev_pk) = make_keypair(&mut rng);
+    let (taker_pub_sk, taker_pub_pk) = make_keypair(&mut rng);
 
     let oracle_data = OliviaData::example_1();
     let oracle_pk = oracle_data.pk;
@@ -193,77 +193,77 @@ fn renew_cfd() {
         .concat(),
     )]);
 
-    let long_cfd_txs = renew_cfd_transactions(
-        long_cfd_txs.lock,
+    let maker_cfd_txs = renew_cfd_transactions(
+        maker_cfd_txs.lock,
         (
-            long.pk,
-            long_lock_amount,
-            long_addr.clone(),
+            maker.pk,
+            maker_lock_amount,
+            maker_addr.clone(),
             PunishParams {
-                revocation_pk: long_rev_pk,
-                publish_pk: long_pub_pk,
+                revocation_pk: maker_rev_pk,
+                publish_pk: maker_pub_pk,
             },
         ),
         (
-            short.pk,
-            short_lock_amount,
-            short_addr.clone(),
+            taker.pk,
+            taker_lock_amount,
+            taker_addr.clone(),
             PunishParams {
-                revocation_pk: short_rev_pk,
-                publish_pk: short_pub_pk,
+                revocation_pk: taker_rev_pk,
+                publish_pk: taker_pub_pk,
             },
         ),
         oracle_pk,
         (cet_timelock, refund_timelock),
         payouts_per_event.clone(),
-        long.sk,
+        maker.sk,
         1,
     )
     .unwrap();
 
-    let short_cfd_txs = renew_cfd_transactions(
-        short_cfd_txs.lock,
+    let taker_cfd_txs = renew_cfd_transactions(
+        taker_cfd_txs.lock,
         (
-            long.pk,
-            long_lock_amount,
-            long_addr.clone(),
+            maker.pk,
+            maker_lock_amount,
+            maker_addr.clone(),
             PunishParams {
-                revocation_pk: long_rev_pk,
-                publish_pk: long_pub_pk,
+                revocation_pk: maker_rev_pk,
+                publish_pk: maker_pub_pk,
             },
         ),
         (
-            short.pk,
-            short_lock_amount,
-            short_addr.clone(),
+            taker.pk,
+            taker_lock_amount,
+            taker_addr.clone(),
             PunishParams {
-                revocation_pk: short_rev_pk,
-                publish_pk: short_pub_pk,
+                revocation_pk: taker_rev_pk,
+                publish_pk: taker_pub_pk,
             },
         ),
         oracle_pk,
         (cet_timelock, refund_timelock),
         payouts_per_event,
-        short.sk,
+        taker.sk,
         1,
     )
     .unwrap();
 
-    assert_contains_cets_for_event(&long_cfd_txs.cets, &event);
-    assert_contains_cets_for_event(&short_cfd_txs.cets, &event);
+    assert_contains_cets_for_event(&maker_cfd_txs.cets, &event);
+    assert_contains_cets_for_event(&taker_cfd_txs.cets, &event);
 
-    let lock_desc = lock_descriptor(long.pk, short.pk);
-    let lock_amount = long_lock_amount + short_lock_amount;
+    let lock_desc = lock_descriptor(maker.pk, taker.pk);
+    let lock_amount = maker_lock_amount + taker_lock_amount;
 
     let commit_desc = commit_descriptor(
-        (long.pk, long_rev_pk, long_pub_pk),
-        (short.pk, short_rev_pk, short_pub_pk),
+        (maker.pk, maker_rev_pk, maker_pub_pk),
+        (taker.pk, taker_rev_pk, taker_pub_pk),
     );
-    let commit_amount = Amount::from_sat(long_cfd_txs.commit.0.output[0].value);
+    let commit_amount = Amount::from_sat(maker_cfd_txs.commit.0.output[0].value);
 
     verify_cfd_sigs(
-        (&long_cfd_txs, long.pk, long_pub_pk),
-        (&short_cfd_txs, short.pk, short_pub_pk),
+        (&maker_cfd_txs, maker.pk, maker_pub_pk),
+        (&taker_cfd_txs, taker.pk, taker_pub_pk),
         (oracle_pk, vec![event]),
         (&lock_desc, lock_amount),
         (&commit_desc, commit_amount),
@@ -271,24 +271,24 @@ fn renew_cfd() {
 
     check_cfd_txs(
         (
-            long_wallet,
-            long_cfd_txs,
-            long.sk,
-            long.pk,
-            long_pub_sk,
-            long_pub_pk,
-            long_rev_sk,
-            long_addr,
+            maker_wallet,
+            maker_cfd_txs,
+            maker.sk,
+            maker.pk,
+            maker_pub_sk,
+            maker_pub_pk,
+            maker_rev_sk,
+            maker_addr,
         ),
         (
-            short_wallet,
-            short_cfd_txs,
-            short.sk,
-            short.pk,
-            short_pub_sk,
-            short_pub_pk,
-            short_rev_sk,
-            short_addr,
+            taker_wallet,
+            taker_cfd_txs,
+            taker.sk,
+            taker.pk,
+            taker_pub_sk,
+            taker_pub_pk,
+            taker_rev_sk,
+            taker_addr,
         ),
         &[oracle_data],
         (lock_desc, lock_amount),
@@ -300,11 +300,11 @@ fn renew_cfd() {
 fn collaboratively_close_cfd() {
     let mut rng = thread_rng();
 
-    let long_lock_amount = Amount::ONE_BTC;
-    let short_lock_amount = Amount::ONE_BTC;
+    let maker_lock_amount = Amount::ONE_BTC;
+    let taker_lock_amount = Amount::ONE_BTC;
 
-    let long_wallet = build_wallet(&mut rng, Amount::from_btc(0.4).unwrap(), 5).unwrap();
-    let short_wallet = build_wallet(&mut rng, Amount::from_btc(0.4).unwrap(), 5).unwrap();
+    let maker_wallet = build_wallet(&mut rng, Amount::from_btc(0.4).unwrap(), 5).unwrap();
+    let taker_wallet = build_wallet(&mut rng, Amount::from_btc(0.4).unwrap(), 5).unwrap();
 
     let oracle_data = OliviaData::example_0();
     let oracle_pk = oracle_data.pk;
@@ -323,17 +323,17 @@ fn collaboratively_close_cfd() {
     let cet_timelock = 0;
     let refund_timelock = 0;
 
-    let (long_cfd_txs, _, long, short, long_addr, short_addr) = create_cfd_txs(
+    let (maker_cfd_txs, _, maker, taker, maker_addr, taker_addr) = create_cfd_txs(
         &mut rng,
-        (&long_wallet, long_lock_amount),
-        (&short_wallet, short_lock_amount),
+        (&maker_wallet, maker_lock_amount),
+        (&taker_wallet, taker_lock_amount),
         oracle_pk,
         payouts_per_event,
         (cet_timelock, refund_timelock),
     );
 
-    let lock_tx = long_cfd_txs.lock.extract_tx();
-    let lock_desc = lock_descriptor(long.pk, short.pk);
+    let lock_tx = maker_cfd_txs.lock.extract_tx();
+    let lock_desc = lock_descriptor(maker.pk, taker.pk);
     let (lock_outpoint, lock_amount) = {
         let outpoint = lock_tx
             .outpoint(&lock_desc.script_pubkey())
@@ -343,26 +343,26 @@ fn collaboratively_close_cfd() {
         (outpoint, amount)
     };
 
-    let long_amount = Amount::ONE_BTC;
-    let short_amount = Amount::ONE_BTC;
+    let maker_amount = Amount::ONE_BTC;
+    let taker_amount = Amount::ONE_BTC;
 
     let (close_tx, close_sighash) = close_transaction(
         &lock_desc,
         lock_outpoint,
         lock_amount,
-        (&long_addr, long_amount),
-        (&short_addr, short_amount),
+        (&maker_addr, maker_amount),
+        (&taker_addr, taker_amount),
         1,
     )
     .expect("to build close tx");
 
-    let sig_long = SECP256K1.sign(&close_sighash, &long.sk);
-    let sig_short = SECP256K1.sign(&close_sighash, &short.sk);
+    let sig_maker = SECP256K1.sign(&close_sighash, &maker.sk);
+    let sig_taker = SECP256K1.sign(&close_sighash, &taker.sk);
     let signed_close_tx = finalize_spend_transaction(
         close_tx,
         &lock_desc,
-        (long.pk, sig_long),
-        (short.pk, sig_short),
+        (maker.pk, sig_maker),
+        (taker.pk, sig_taker),
     )
     .expect("to sign close tx");
 
@@ -371,8 +371,8 @@ fn collaboratively_close_cfd() {
 
 fn create_cfd_txs(
     rng: &mut (impl RngCore + CryptoRng),
-    (long_wallet, long_lock_amount): (&bdk::Wallet<(), bdk::database::MemoryDatabase>, Amount),
-    (short_wallet, short_lock_amount): (&bdk::Wallet<(), bdk::database::MemoryDatabase>, Amount),
+    (maker_wallet, maker_lock_amount): (&bdk::Wallet<(), bdk::database::MemoryDatabase>, Amount),
+    (taker_wallet, taker_lock_amount): (&bdk::Wallet<(), bdk::database::MemoryDatabase>, Amount),
     oracle_pk: schnorrsig::PublicKey,
     payouts_per_event: HashMap<Announcement, Vec<Payout>>,
     (cet_timelock, refund_timelock): (u32, u32),
@@ -384,112 +384,112 @@ fn create_cfd_txs(
     Address,
     Address,
 ) {
-    let (long_sk, long_pk) = make_keypair(rng);
-    let (short_sk, short_pk) = make_keypair(rng);
+    let (maker_sk, maker_pk) = make_keypair(rng);
+    let (taker_sk, taker_pk) = make_keypair(rng);
 
-    let long_addr = long_wallet.get_address(AddressIndex::New).unwrap();
-    let short_addr = short_wallet.get_address(AddressIndex::New).unwrap();
+    let maker_addr = maker_wallet.get_address(AddressIndex::New).unwrap();
+    let taker_addr = taker_wallet.get_address(AddressIndex::New).unwrap();
 
-    let (long_rev_sk, long_rev_pk) = make_keypair(rng);
-    let (long_pub_sk, long_pub_pk) = make_keypair(rng);
-    let (short_rev_sk, short_rev_pk) = make_keypair(rng);
-    let (short_pub_sk, short_pub_pk) = make_keypair(rng);
+    let (maker_rev_sk, maker_rev_pk) = make_keypair(rng);
+    let (maker_pub_sk, maker_pub_pk) = make_keypair(rng);
+    let (taker_rev_sk, taker_rev_pk) = make_keypair(rng);
+    let (taker_pub_sk, taker_pub_pk) = make_keypair(rng);
 
-    let long_params = PartyParams {
+    let maker_params = PartyParams {
         lock_psbt: {
-            let mut builder = long_wallet.build_tx();
+            let mut builder = maker_wallet.build_tx();
 
             builder
                 .fee_rate(FeeRate::from_sat_per_vb(1.0))
-                .add_2of2_multisig_recipient(long_lock_amount);
+                .add_2of2_multisig_recipient(maker_lock_amount);
 
             builder.finish().unwrap().0
         },
-        identity_pk: long_pk,
-        lock_amount: long_lock_amount,
-        address: long_wallet.get_address(AddressIndex::New).unwrap().address,
+        identity_pk: maker_pk,
+        lock_amount: maker_lock_amount,
+        address: maker_wallet.get_address(AddressIndex::New).unwrap().address,
     };
 
-    let short_params = PartyParams {
+    let taker_params = PartyParams {
         lock_psbt: {
-            let mut builder = short_wallet.build_tx();
+            let mut builder = taker_wallet.build_tx();
 
             builder
                 .fee_rate(FeeRate::from_sat_per_vb(1.0))
-                .add_2of2_multisig_recipient(short_lock_amount);
+                .add_2of2_multisig_recipient(taker_lock_amount);
 
             builder.finish().unwrap().0
         },
-        identity_pk: short_pk,
-        lock_amount: short_lock_amount,
-        address: short_wallet.get_address(AddressIndex::New).unwrap().address,
+        identity_pk: taker_pk,
+        lock_amount: taker_lock_amount,
+        address: taker_wallet.get_address(AddressIndex::New).unwrap().address,
     };
 
-    let long_cfd_txs = create_cfd_transactions(
+    let maker_cfd_txs = create_cfd_transactions(
         (
-            long_params.clone(),
+            maker_params.clone(),
             PunishParams {
-                revocation_pk: long_rev_pk,
-                publish_pk: long_pub_pk,
+                revocation_pk: maker_rev_pk,
+                publish_pk: maker_pub_pk,
             },
         ),
         (
-            short_params.clone(),
+            taker_params.clone(),
             PunishParams {
-                revocation_pk: short_rev_pk,
-                publish_pk: short_pub_pk,
+                revocation_pk: taker_rev_pk,
+                publish_pk: taker_pub_pk,
             },
         ),
         oracle_pk,
         (cet_timelock, refund_timelock),
         payouts_per_event.clone(),
-        long_sk,
+        maker_sk,
         1,
     )
     .unwrap();
-    let short_cfd_txs = create_cfd_transactions(
+    let taker_cfd_txs = create_cfd_transactions(
         (
-            long_params,
+            maker_params,
             PunishParams {
-                revocation_pk: long_rev_pk,
-                publish_pk: long_pub_pk,
+                revocation_pk: maker_rev_pk,
+                publish_pk: maker_pub_pk,
             },
         ),
         (
-            short_params,
+            taker_params,
             PunishParams {
-                revocation_pk: short_rev_pk,
-                publish_pk: short_pub_pk,
+                revocation_pk: taker_rev_pk,
+                publish_pk: taker_pub_pk,
             },
         ),
         oracle_pk,
         (cet_timelock, refund_timelock),
         payouts_per_event,
-        short_sk,
+        taker_sk,
         1,
     )
     .unwrap();
     (
-        long_cfd_txs,
-        short_cfd_txs,
+        maker_cfd_txs,
+        taker_cfd_txs,
         CfdKeys {
-            sk: long_sk,
-            pk: long_pk,
-            rev_sk: long_rev_sk,
-            rev_pk: long_rev_pk,
-            pub_sk: long_pub_sk,
-            pub_pk: long_pub_pk,
+            sk: maker_sk,
+            pk: maker_pk,
+            rev_sk: maker_rev_sk,
+            rev_pk: maker_rev_pk,
+            pub_sk: maker_pub_sk,
+            pub_pk: maker_pub_pk,
         },
         CfdKeys {
-            sk: short_sk,
-            pk: short_pk,
-            rev_sk: short_rev_sk,
-            rev_pk: short_rev_pk,
-            pub_sk: short_pub_sk,
-            pub_pk: short_pub_pk,
+            sk: taker_sk,
+            pk: taker_pk,
+            rev_sk: taker_rev_sk,
+            rev_pk: taker_rev_pk,
+            pub_sk: taker_pub_sk,
+            pub_pk: taker_pub_pk,
         },
-        long_addr.address,
-        short_addr.address,
+        maker_addr.address,
+        taker_addr.address,
     )
 }
 
@@ -503,121 +503,121 @@ struct CfdKeys {
 }
 
 fn verify_cfd_sigs(
-    (long_cfd_txs, long_pk, long_publish_pk): (&CfdTransactions, PublicKey, PublicKey),
-    (short_cfd_txs, short_pk, short_publish_pk): (&CfdTransactions, PublicKey, PublicKey),
+    (maker_cfd_txs, maker_pk, maker_publish_pk): (&CfdTransactions, PublicKey, PublicKey),
+    (taker_cfd_txs, taker_pk, taker_publish_pk): (&CfdTransactions, PublicKey, PublicKey),
     (oracle_pk, events): (schnorrsig::PublicKey, Vec<Announcement>),
     (lock_desc, lock_amount): (&Descriptor<PublicKey>, Amount),
     (commit_desc, commit_amount): (&Descriptor<PublicKey>, Amount),
 ) {
     verify_spend(
-        &short_cfd_txs.refund.0,
-        &long_cfd_txs.refund.1,
+        &taker_cfd_txs.refund.0,
+        &maker_cfd_txs.refund.1,
         commit_desc,
         commit_amount,
-        &long_pk.key,
+        &maker_pk.key,
     )
-    .expect("valid long refund sig");
+    .expect("valid maker refund sig");
     verify_spend(
-        &long_cfd_txs.refund.0,
-        &short_cfd_txs.refund.1,
+        &maker_cfd_txs.refund.0,
+        &taker_cfd_txs.refund.1,
         commit_desc,
         commit_amount,
-        &short_pk.key,
+        &taker_pk.key,
     )
-    .expect("valid short refund sig");
+    .expect("valid taker refund sig");
 
-    for grouped_short_cets in short_cfd_txs.cets.iter() {
-        let grouped_long_cets = long_cfd_txs
+    for grouped_taker_cets in taker_cfd_txs.cets.iter() {
+        let grouped_maker_cets = maker_cfd_txs
             .cets
             .iter()
-            .find(|grouped_long_cets| grouped_long_cets.event == grouped_short_cets.event)
+            .find(|grouped_maker_cets| grouped_maker_cets.event == grouped_taker_cets.event)
             .expect("both parties to have the same set of payouts");
         let event = events
             .iter()
-            .find(|event| event.id == grouped_long_cets.event.id)
+            .find(|event| event.id == grouped_maker_cets.event.id)
             .expect("event to exist");
-        for (tx, _, digits) in grouped_short_cets.cets.iter() {
-            grouped_long_cets
+        for (tx, _, digits) in grouped_taker_cets.cets.iter() {
+            grouped_maker_cets
                 .cets
                 .iter()
-                .find(|(long_tx, long_encsig, _)| {
-                    long_tx.txid() == tx.txid()
+                .find(|(maker_tx, maker_encsig, _)| {
+                    maker_tx.txid() == tx.txid()
                         && verify_cet_encsig(
                             tx,
-                            long_encsig,
+                            maker_encsig,
                             digits,
-                            &long_pk.key,
+                            &maker_pk.key,
                             (oracle_pk, event.nonce_pks.as_slice()),
                             commit_desc,
                             commit_amount,
                         )
                         .is_ok()
                 })
-                .expect("one valid long cet encsig per cet");
+                .expect("one valid maker cet encsig per cet");
         }
     }
 
-    for grouped_long_cets in long_cfd_txs.cets.iter() {
-        let grouped_short_cets = short_cfd_txs
+    for grouped_maker_cets in maker_cfd_txs.cets.iter() {
+        let grouped_taker_cets = taker_cfd_txs
             .cets
             .iter()
-            .find(|grouped_short_cets| grouped_short_cets.event == grouped_long_cets.event)
+            .find(|grouped_taker_cets| grouped_taker_cets.event == grouped_maker_cets.event)
             .expect("both parties to have the same set of payouts");
         let event = events
             .iter()
-            .find(|event| event.id == grouped_long_cets.event.id)
+            .find(|event| event.id == grouped_maker_cets.event.id)
             .expect("event to exist");
-        for (tx, _, digits) in grouped_long_cets.cets.iter() {
-            grouped_short_cets
+        for (tx, _, digits) in grouped_maker_cets.cets.iter() {
+            grouped_taker_cets
                 .cets
                 .iter()
-                .find(|(short_tx, short_encsig, _)| {
-                    short_tx.txid() == tx.txid()
+                .find(|(taker_tx, taker_encsig, _)| {
+                    taker_tx.txid() == tx.txid()
                         && verify_cet_encsig(
                             tx,
-                            short_encsig,
+                            taker_encsig,
                             digits,
-                            &short_pk.key,
+                            &taker_pk.key,
                             (oracle_pk, event.nonce_pks.as_slice()),
                             commit_desc,
                             commit_amount,
                         )
                         .is_ok()
                 })
-                .expect("one valid short cet encsig per cet");
+                .expect("one valid taker cet encsig per cet");
         }
     }
 
     encverify_spend(
-        &short_cfd_txs.commit.0,
-        &long_cfd_txs.commit.1,
+        &taker_cfd_txs.commit.0,
+        &maker_cfd_txs.commit.1,
         lock_desc,
         lock_amount,
-        &short_publish_pk.key,
-        &long_pk.key,
+        &taker_publish_pk.key,
+        &maker_pk.key,
     )
-    .expect("valid long commit encsig");
+    .expect("valid maker commit encsig");
     encverify_spend(
-        &long_cfd_txs.commit.0,
-        &short_cfd_txs.commit.1,
+        &maker_cfd_txs.commit.0,
+        &taker_cfd_txs.commit.1,
         lock_desc,
         lock_amount,
-        &long_publish_pk.key,
-        &short_pk.key,
+        &maker_publish_pk.key,
+        &taker_pk.key,
     )
-    .expect("valid short commit encsig");
+    .expect("valid taker commit encsig");
 }
 
 fn check_cfd_txs(
     (
-long_wallet,
-long_cfd_txs,
-long_sk,
-long_pk,
-long_pub_sk,
-long_pub_pk,
-long_rev_sk,
-long_addr,
+        maker_wallet,
+        maker_cfd_txs,
+        maker_sk,
+        maker_pk,
+        maker_pub_sk,
+        maker_pub_pk,
+        maker_rev_sk,
+        maker_addr,
     ): (
         bdk::Wallet<(), bdk::database::MemoryDatabase>,
         CfdTransactions,
@@ -629,14 +629,14 @@ long_addr,
         Address,
     ),
     (
-        short_wallet,
-        short_cfd_txs,
-        short_sk,
-        short_pk,
-        short_pub_sk,
-        short_pub_pk,
-        short_rev_sk,
-        short_addr,
+        taker_wallet,
+        taker_cfd_txs,
+        taker_sk,
+        taker_pk,
+        taker_pub_sk,
+        taker_pub_pk,
+        taker_rev_sk,
+        taker_addr,
     ): (
         bdk::Wallet<(), bdk::database::MemoryDatabase>,
         CfdTransactions,
@@ -653,48 +653,48 @@ long_addr,
 ) {
     // Lock transaction (either party can do this):
 
-    let signed_lock_tx = sign_lock_tx(long_cfd_txs.lock.clone(), long_wallet, short_wallet)
+    let signed_lock_tx = sign_lock_tx(maker_cfd_txs.lock.clone(), maker_wallet, taker_wallet)
         .expect("to build signed lock tx");
 
     // Commit transactions:
 
-    let signed_commit_tx_long = decrypt_and_sign(
-        long_cfd_txs.commit.0.clone(),
-        (&long_sk, &long_pk),
-        &long_pub_sk,
-        &short_pk,
-        &short_cfd_txs.commit.1,
+    let signed_commit_tx_maker = decrypt_and_sign(
+        maker_cfd_txs.commit.0.clone(),
+        (&maker_sk, &maker_pk),
+        &maker_pub_sk,
+        &taker_pk,
+        &taker_cfd_txs.commit.1,
         &lock_desc,
         lock_amount,
     )
-    .expect("long to build signed commit tx");
-    check_tx(&signed_lock_tx, &signed_commit_tx_long, &lock_desc).expect("valid long commit tx");
-    let signed_commit_tx_short = decrypt_and_sign(
-        short_cfd_txs.commit.0.clone(),
-        (&short_sk, &short_pk),
-        &short_pub_sk,
-        &long_pk,
-        &long_cfd_txs.commit.1,
+    .expect("maker to build signed commit tx");
+    check_tx(&signed_lock_tx, &signed_commit_tx_maker, &lock_desc).expect("valid maker commit tx");
+    let signed_commit_tx_taker = decrypt_and_sign(
+        taker_cfd_txs.commit.0.clone(),
+        (&taker_sk, &taker_pk),
+        &taker_pub_sk,
+        &maker_pk,
+        &maker_cfd_txs.commit.1,
         &lock_desc,
         lock_amount,
     )
-    .expect("short to build signed commit tx");
-    check_tx(&signed_lock_tx, &signed_commit_tx_short, &lock_desc).expect("valid short commit tx");
+    .expect("taker to build signed commit tx");
+    check_tx(&signed_lock_tx, &signed_commit_tx_taker, &lock_desc).expect("valid taker commit tx");
 
     // Refund transaction (both parties would produce the same one):
 
     let signed_refund_tx = finalize_spend_transaction(
-        long_cfd_txs.refund.0.clone(),
+        maker_cfd_txs.refund.0.clone(),
         &commit_desc,
-        (long_pk, long_cfd_txs.refund.1),
-        (short_pk, short_cfd_txs.refund.1),
+        (maker_pk, maker_cfd_txs.refund.1),
+        (taker_pk, taker_cfd_txs.refund.1),
     )
     .expect("to build signed refund tx");
-    check_tx(&signed_commit_tx_long, &signed_refund_tx, &commit_desc).expect("valid refund tx");
+    check_tx(&signed_commit_tx_maker, &signed_refund_tx, &commit_desc).expect("valid refund tx");
 
     // CETs:
 
-    for Cets { event, cets } in long_cfd_txs.cets.clone().into_iter() {
+    for Cets { event, cets } in maker_cfd_txs.cets.clone().into_iter() {
         let oracle_data = oracle_data_list
             .iter()
             .find(|data| data.id == event.id)
@@ -702,7 +702,7 @@ long_addr,
         let price = oracle_data.price;
         let oracle_attestations = oracle_data.attestations.clone();
 
-        let short_cets = short_cfd_txs
+        let taker_cets = taker_cfd_txs
             .cets
             .iter()
             .find_map(
@@ -711,7 +711,7 @@ long_addr,
                      cets,
                  }| (other_event.id == event.id).then(|| cets),
             )
-            .expect("same events for short and long");
+            .expect("same events for taker and maker");
 
         cets.into_iter().for_each(|(tx, _, digits)| {
             if !digits.range().contains(&price) {
@@ -720,17 +720,17 @@ long_addr,
 
             build_and_check_cet(
                 tx,
-                short_cets,
-                (&long_sk, &long_pk),
-                &short_pk,
+                taker_cets,
+                (&maker_sk, &maker_pk),
+                &taker_pk,
                 (price, &oracle_attestations),
-                (&signed_commit_tx_long, &commit_desc, commit_amount),
+                (&signed_commit_tx_maker, &commit_desc, commit_amount),
             )
-            .expect("valid unlocked long cet");
+            .expect("valid unlocked maker cet");
         });
     }
 
-    for Cets { event, cets } in short_cfd_txs.cets.clone().into_iter() {
+    for Cets { event, cets } in taker_cfd_txs.cets.clone().into_iter() {
         let oracle_data = oracle_data_list
             .iter()
             .find(|data| data.id == event.id)
@@ -738,7 +738,7 @@ long_addr,
         let price = oracle_data.price;
         let oracle_attestations = oracle_data.attestations.clone();
 
-        let long_cets = long_cfd_txs
+        let maker_cets = maker_cfd_txs
             .cets
             .iter()
             .find_map(
@@ -747,7 +747,7 @@ long_addr,
                      cets,
                  }| (other_event.id == event.id).then(|| cets),
             )
-            .expect("same events for short and long");
+            .expect("same events for taker and maker");
 
         cets.into_iter().for_each(|(tx, _, digits)| {
             if !digits.range().contains(&price) {
@@ -756,41 +756,42 @@ long_addr,
 
             build_and_check_cet(
                 tx,
-                long_cets,
-                (&short_sk, &short_pk),
-                &long_pk,
+                maker_cets,
+                (&taker_sk, &taker_pk),
+                &maker_pk,
                 (price, &oracle_attestations),
-                (&signed_commit_tx_short, &commit_desc, commit_amount),
+                (&signed_commit_tx_taker, &commit_desc, commit_amount),
             )
-            .expect("valid unlocked short cet");
+            .expect("valid unlocked taker cet");
         });
     }
 
     // Punish transactions:
 
-    let punish_tx_long = punish_transaction(
+    let punish_tx_maker = punish_transaction(
         &commit_desc,
-        &long_addr,
-        long_cfd_txs.commit.1,
-        long_sk,
-        short_rev_sk,
-        short_pub_pk,
-        &signed_commit_tx_short,
+        &maker_addr,
+        maker_cfd_txs.commit.1,
+        maker_sk,
+        taker_rev_sk,
+        taker_pub_pk,
+        &signed_commit_tx_taker,
     )
-    .expect("long to build punish tx");
-    check_tx(&signed_commit_tx_short, &punish_tx_long, &commit_desc).expect("valid long punish tx");
-    let punish_tx_short = punish_transaction(
+    .expect("maker to build punish tx");
+    check_tx(&signed_commit_tx_taker, &punish_tx_maker, &commit_desc)
+        .expect("valid maker punish tx");
+    let punish_tx_taker = punish_transaction(
         &commit_desc,
-        &short_addr,
-        short_cfd_txs.commit.1,
-        short_sk,
-        long_rev_sk,
-        long_pub_pk,
-        &signed_commit_tx_long,
+        &taker_addr,
+        taker_cfd_txs.commit.1,
+        taker_sk,
+        maker_rev_sk,
+        maker_pub_pk,
+        &signed_commit_tx_maker,
     )
-    .expect("short to build punish tx");
-    check_tx(&signed_commit_tx_long, &punish_tx_short, &commit_desc)
-        .expect("valid short punish tx");
+    .expect("taker to build punish tx");
+    check_tx(&signed_commit_tx_maker, &punish_tx_taker, &commit_desc)
+        .expect("valid taker punish tx");
 }
 
 fn build_and_check_cet(
@@ -886,10 +887,10 @@ fn decrypt_and_sign(
 
 fn sign_lock_tx(
     mut lock_tx: PartiallySignedTransaction,
-    long_wallet: bdk::Wallet<(), bdk::database::MemoryDatabase>,
-    short_wallet: bdk::Wallet<(), bdk::database::MemoryDatabase>,
+    maker_wallet: bdk::Wallet<(), bdk::database::MemoryDatabase>,
+    taker_wallet: bdk::Wallet<(), bdk::database::MemoryDatabase>,
 ) -> Result<Transaction> {
-    long_wallet
+    maker_wallet
         .sign(
             &mut lock_tx,
             SignOptions {
@@ -897,8 +898,8 @@ fn sign_lock_tx(
                 ..Default::default()
             },
         )
-        .context("long could not sign lock tx")?;
-    short_wallet
+        .context("maker could not sign lock tx")?;
+    taker_wallet
         .sign(
             &mut lock_tx,
             SignOptions {
@@ -906,7 +907,7 @@ fn sign_lock_tx(
                 ..Default::default()
             },
         )
-        .context("short could not sign lock tx")?;
+        .context("taker could not sign lock tx")?;
 
     Ok(lock_tx.extract_tx())
 }

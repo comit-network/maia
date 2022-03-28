@@ -22,15 +22,15 @@ use std::num::NonZeroU8;
 const SATS_PER_VBYTE: f64 = 1.0;
 
 pub(crate) fn lock_transaction(
-    long_psbt: PartiallySignedTransaction,
-    short_psbt: PartiallySignedTransaction,
-    long_pk: PublicKey,
-    short_pk: PublicKey,
+    maker_psbt: PartiallySignedTransaction,
+    taker_psbt: PartiallySignedTransaction,
+    maker_pk: PublicKey,
+    taker_pk: PublicKey,
     amount: Amount,
 ) -> PartiallySignedTransaction {
-    let lock_descriptor = lock_descriptor(long_pk, short_pk);
+    let lock_descriptor = lock_descriptor(maker_pk, taker_pk);
 
-    let long_change = long_psbt
+    let maker_change = maker_psbt
         .global
         .unsigned_tx
         .output
@@ -40,7 +40,7 @@ pub(crate) fn lock_transaction(
         })
         .collect::<Vec<_>>();
 
-    let short_change = short_psbt
+    let taker_change = taker_psbt
         .global
         .unsigned_tx
         .output
@@ -56,14 +56,14 @@ pub(crate) fn lock_transaction(
     };
 
     let input = vec![
-        long_psbt.global.unsigned_tx.input,
-        short_psbt.global.unsigned_tx.input,
+        maker_psbt.global.unsigned_tx.input,
+        taker_psbt.global.unsigned_tx.input,
     ]
     .concat();
 
     let output = std::iter::once(lock_output)
-        .chain(long_change)
-        .chain(short_change)
+        .chain(maker_change)
+        .chain(taker_change)
         .collect();
 
     let lock_tx = Transaction {
@@ -75,8 +75,8 @@ pub(crate) fn lock_transaction(
 
     PartiallySignedTransaction {
         global: Global::from_unsigned_tx(lock_tx).expect("to be unsigned"),
-        inputs: vec![long_psbt.inputs, short_psbt.inputs].concat(),
-        outputs: vec![long_psbt.outputs, short_psbt.outputs].concat(),
+        inputs: vec![maker_psbt.inputs, taker_psbt.inputs].concat(),
+        outputs: vec![maker_psbt.outputs, taker_psbt.outputs].concat(),
     }
 }
 
@@ -96,11 +96,11 @@ impl CommitTransaction {
 
     pub(crate) fn new(
         lock_tx: &Transaction,
-        (long_pk, long_rev_pk, long_publish_pk): (PublicKey, PublicKey, PublicKey),
-        (short_pk, short_rev_pk, short_publish_pk): (PublicKey, PublicKey, PublicKey),
+        (maker_pk, maker_rev_pk, maker_publish_pk): (PublicKey, PublicKey, PublicKey),
+        (taker_pk, taker_rev_pk, taker_publish_pk): (PublicKey, PublicKey, PublicKey),
         fee_rate: u32,
     ) -> Result<Self> {
-        let lock_descriptor = lock_descriptor(long_pk, short_pk);
+        let lock_descriptor = lock_descriptor(maker_pk, taker_pk);
         let (lock_outpoint, lock_amount) = {
             let outpoint = lock_tx
                 .outpoint(&lock_descriptor.script_pubkey())
@@ -116,8 +116,8 @@ impl CommitTransaction {
         };
 
         let descriptor = commit_descriptor(
-            (long_pk, long_rev_pk, long_publish_pk),
-            (short_pk, short_rev_pk, short_publish_pk),
+            (maker_pk, maker_rev_pk, maker_publish_pk),
+            (taker_pk, taker_rev_pk, taker_publish_pk),
         );
 
         let output = TxOut {
@@ -203,8 +203,8 @@ impl ContractExecutionTransaction {
     pub(crate) fn new(
         commit_tx: &CommitTransaction,
         payout: Payout,
-        long_address: &Address,
-        short_address: &Address,
+        maker_address: &Address,
+        taker_address: &Address,
         nonce_pks: &[schnorrsig::PublicKey],
         relative_timelock_in_blocks: u32,
     ) -> Result<Self> {
@@ -225,10 +225,10 @@ impl ContractExecutionTransaction {
         let output = payout
             .with_updated_fee(
                 Amount::from_sat(fee.as_u64()),
-                long_address.script_pubkey().dust_value(),
-                short_address.script_pubkey().dust_value(),
+                maker_address.script_pubkey().dust_value(),
+                taker_address.script_pubkey().dust_value(),
             )?
-            .into_txouts(long_address, short_address);
+            .into_txouts(maker_address, taker_address);
 
         let tx = Transaction {
             version: 2,
@@ -285,10 +285,10 @@ impl RefundTransaction {
     pub(crate) fn new(
         commit_tx: &CommitTransaction,
         relative_locktime_in_blocks: u32,
-        long_address: &Address,
-        short_address: &Address,
-        long_amount: Amount,
-        short_amount: Amount,
+        maker_address: &Address,
+        taker_address: &Address,
+        maker_amount: Amount,
+        taker_amount: Amount,
     ) -> Self {
         let commit_input = TxIn {
             previous_output: commit_tx.outpoint(),
@@ -296,21 +296,21 @@ impl RefundTransaction {
             ..Default::default()
         };
 
-        let long_output = TxOut {
-            value: long_amount.as_sat(),
-            script_pubkey: long_address.script_pubkey(),
+        let maker_output = TxOut {
+            value: maker_amount.as_sat(),
+            script_pubkey: maker_address.script_pubkey(),
         };
 
-        let short_output = TxOut {
-            value: short_amount.as_sat(),
-            script_pubkey: short_address.script_pubkey(),
+        let taker_output = TxOut {
+            value: taker_amount.as_sat(),
+            script_pubkey: taker_address.script_pubkey(),
         };
 
         let mut tx = Transaction {
             version: 2,
             lock_time: 0,
             input: vec![commit_input],
-            output: vec![long_output, short_output],
+            output: vec![maker_output, taker_output],
         };
 
         let mut fee = Self::SIGNED_VBYTES * SATS_PER_VBYTE;
@@ -340,14 +340,14 @@ impl RefundTransaction {
 /// Build a transaction which closes the CFD contract.
 ///
 /// This transaction spends directly from the lock transaction. Both
-/// parties must agree on the split of coins between `long_amount`
-/// and `short_amount`.
+/// parties must agree on the split of coins between `maker_amount`
+/// and `taker_amount`.
 pub fn close_transaction(
     lock_descriptor: &Descriptor<PublicKey>,
     lock_outpoint: OutPoint,
     lock_amount: Amount,
-    (long_address, long_amount): (&Address, Amount),
-    (short_address, short_amount): (&Address, Amount),
+    (maker_address, maker_amount): (&Address, Amount),
+    (taker_address, taker_amount): (&Address, Amount),
     fee_rate: u32,
 ) -> Result<(Transaction, secp256k1_zkp::Message)> {
     /// Expected size of signed transaction in virtual bytes, plus a
@@ -362,22 +362,22 @@ pub fn close_transaction(
     // TODO: The fee could take into account the network state in this
     // case, since this transaction is to be broadcast immediately
     // after building and signing it
-    let (long_fee, short_fee) = Fee::new(SIGNED_VBYTES, fee_rate as f64).split();
+    let (maker_fee, taker_fee) = Fee::new(SIGNED_VBYTES, fee_rate as f64).split();
 
-    let long_output = TxOut {
-        value: long_amount.as_sat() - long_fee,
-        script_pubkey: long_address.script_pubkey(),
+    let maker_output = TxOut {
+        value: maker_amount.as_sat() - maker_fee,
+        script_pubkey: maker_address.script_pubkey(),
     };
-    let short_output = TxOut {
-        value: short_amount.as_sat() - short_fee,
-        script_pubkey: short_address.script_pubkey(),
+    let taker_output = TxOut {
+        value: taker_amount.as_sat() - taker_fee,
+        script_pubkey: taker_address.script_pubkey(),
     };
 
     let tx = Transaction {
         version: 2,
         lock_time: 0,
         input: vec![lock_input],
-        output: vec![long_output, short_output],
+        output: vec![maker_output, taker_output],
     };
 
     let sighash = SigHashCache::new(&tx)
@@ -528,10 +528,10 @@ mod tests {
         #[test]
         fn test_fee_always_above_min_relay_fee(signed_vbytes in 1.0f64..100_000_000.0f64) {
             let fee = Fee::new_with_default_rate(signed_vbytes);
-            let (long_fee, short_fee) = fee.split();
+            let (maker_fee, taker_fee) = fee.split();
 
             prop_assert!(signed_vbytes <= fee.as_u64() as f64);
-            prop_assert!(signed_vbytes <= (long_fee + short_fee) as f64);
+            prop_assert!(signed_vbytes <= (maker_fee + taker_fee) as f64);
         }
     }
 
@@ -542,12 +542,12 @@ mod tests {
         const SIGNED_VBYTES_TEST: f64 = 1.0;
 
         let fee = Fee::new_with_default_rate(SIGNED_VBYTES_TEST);
-        let (long_fee, short_fee) = fee.split();
+        let (maker_fee, taker_fee) = fee.split();
 
         assert_eq!(fee.as_u64(), 1);
-        assert_eq!(long_fee, 0);
-        assert_eq!(short_fee, 1);
-        assert!((long_fee + short_fee) as f64 >= SIGNED_VBYTES_TEST);
+        assert_eq!(maker_fee, 0);
+        assert_eq!(taker_fee, 1);
+        assert!((maker_fee + taker_fee) as f64 >= SIGNED_VBYTES_TEST);
     }
 
     #[test]
@@ -555,12 +555,12 @@ mod tests {
         const SIGNED_VBYTES_TEST: f64 = 2.0;
 
         let fee = Fee::new_with_default_rate(SIGNED_VBYTES_TEST);
-        let (long_fee, short_fee) = fee.split();
+        let (maker_fee, taker_fee) = fee.split();
 
         assert_eq!(fee.as_u64(), 2);
-        assert_eq!(long_fee, 1);
-        assert_eq!(short_fee, 1);
-        assert!((long_fee + short_fee) as f64 >= SIGNED_VBYTES_TEST);
+        assert_eq!(maker_fee, 1);
+        assert_eq!(taker_fee, 1);
+        assert!((maker_fee + taker_fee) as f64 >= SIGNED_VBYTES_TEST);
     }
 
     #[test]
@@ -568,12 +568,12 @@ mod tests {
         const SIGNED_VBYTES_TEST: f64 = 2.1;
 
         let fee = Fee::new_with_default_rate(SIGNED_VBYTES_TEST);
-        let (long_fee, short_fee) = fee.split();
+        let (maker_fee, taker_fee) = fee.split();
 
         assert_eq!(fee.as_u64(), 3);
-        assert_eq!(long_fee, 1);
-        assert_eq!(short_fee, 2);
-        assert!((long_fee + short_fee) as f64 >= SIGNED_VBYTES_TEST);
+        assert_eq!(maker_fee, 1);
+        assert_eq!(taker_fee, 2);
+        assert!((maker_fee + taker_fee) as f64 >= SIGNED_VBYTES_TEST);
     }
 
     #[test]
@@ -581,11 +581,11 @@ mod tests {
         const SIGNED_VBYTES_TEST: f64 = 2.6;
 
         let fee = Fee::new_with_default_rate(SIGNED_VBYTES_TEST);
-        let (long_fee, short_fee) = fee.split();
+        let (maker_fee, taker_fee) = fee.split();
 
         assert_eq!(fee.as_u64(), 3);
-        assert_eq!(long_fee, 1);
-        assert_eq!(short_fee, 2);
-        assert!((long_fee + short_fee) as f64 >= SIGNED_VBYTES_TEST);
+        assert_eq!(maker_fee, 1);
+        assert_eq!(taker_fee, 2);
+        assert!((maker_fee + taker_fee) as f64 >= SIGNED_VBYTES_TEST);
     }
 }
