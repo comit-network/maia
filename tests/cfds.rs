@@ -371,8 +371,8 @@ fn collaboratively_close_cfd() {
 
 fn create_cfd_txs(
     rng: &mut (impl RngCore + CryptoRng),
-    (maker_wallet, maker_lock_amount): (&bdk::Wallet<(), bdk::database::MemoryDatabase>, Amount),
-    (taker_wallet, taker_lock_amount): (&bdk::Wallet<(), bdk::database::MemoryDatabase>, Amount),
+    (maker_wallet, maker_lock_amount): (&bdk::Wallet<bdk::database::MemoryDatabase>, Amount),
+    (taker_wallet, taker_lock_amount): (&bdk::Wallet<bdk::database::MemoryDatabase>, Amount),
     oracle_pk: schnorrsig::PublicKey,
     payouts_per_event: HashMap<Announcement, Vec<Payout>>,
     (cet_timelock, refund_timelock): (u32, u32),
@@ -619,7 +619,7 @@ fn check_cfd_txs(
         maker_rev_sk,
         maker_addr,
     ): (
-        bdk::Wallet<(), bdk::database::MemoryDatabase>,
+        bdk::Wallet<bdk::database::MemoryDatabase>,
         CfdTransactions,
         SecretKey,
         PublicKey,
@@ -638,7 +638,7 @@ fn check_cfd_txs(
         taker_rev_sk,
         taker_addr,
     ): (
-        bdk::Wallet<(), bdk::database::MemoryDatabase>,
+        bdk::Wallet<bdk::database::MemoryDatabase>,
         CfdTransactions,
         SecretKey,
         PublicKey,
@@ -887,8 +887,8 @@ fn decrypt_and_sign(
 
 fn sign_lock_tx(
     mut lock_tx: PartiallySignedTransaction,
-    maker_wallet: bdk::Wallet<(), bdk::database::MemoryDatabase>,
-    taker_wallet: bdk::Wallet<(), bdk::database::MemoryDatabase>,
+    maker_wallet: bdk::Wallet<bdk::database::MemoryDatabase>,
+    taker_wallet: bdk::Wallet<bdk::database::MemoryDatabase>,
 ) -> Result<Transaction> {
     maker_wallet
         .sign(
@@ -1005,7 +1005,7 @@ fn build_wallet(
     rng: &mut (impl RngCore + CryptoRng),
     utxo_amount: Amount,
     num_utxos: u8,
-) -> Result<bdk::Wallet<(), bdk::database::MemoryDatabase>> {
+) -> Result<bdk::Wallet<bdk::database::MemoryDatabase>> {
     use bdk::{populate_test_db, testutils};
 
     let mut seed = [0u8; 32];
@@ -1026,7 +1026,7 @@ fn build_wallet(
         );
     }
 
-    let wallet = bdk::Wallet::new_offline(&descriptors.0, None, Network::Regtest, database)?;
+    let wallet = bdk::Wallet::new(&descriptors.0, None, Network::Regtest, database)?;
 
     Ok(wallet)
 }
