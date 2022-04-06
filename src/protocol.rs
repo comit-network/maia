@@ -20,7 +20,7 @@ use bdk::miniscript::descriptor::Wsh;
 use bdk::miniscript::DescriptorTrait;
 use bdk::TxBuilder;
 use itertools::Itertools;
-use secp256k1_zkp::{self, schnorrsig, EcdsaAdaptorSignature, SecretKey, Signature, SECP256K1};
+use secp256k1_zkp::{self, ecdsa, EcdsaAdaptorSignature, SecretKey, XOnlyPublicKey, SECP256K1};
 use std::collections::HashMap;
 use std::hash::Hasher;
 use std::iter::FromIterator;
@@ -73,7 +73,7 @@ where
 pub fn create_cfd_transactions(
     (maker, maker_punish_params): (PartyParams, PunishParams),
     (taker, taker_punish_params): (PartyParams, PunishParams),
-    oracle_pk: schnorrsig::PublicKey,
+    oracle_pk: XOnlyPublicKey,
     (cet_timelock, refund_timelock): (u32, u32),
     payouts_per_event: HashMap<Announcement, Vec<Payout>>,
     identity_sk: SecretKey,
@@ -124,7 +124,7 @@ pub fn renew_cfd_transactions(
         Address,
         PunishParams,
     ),
-    oracle_pk: schnorrsig::PublicKey,
+    oracle_pk: XOnlyPublicKey,
     (cet_timelock, refund_timelock): (u32, u32),
     payouts_per_event: HashMap<Announcement, Vec<Payout>>,
     identity_sk: SecretKey,
@@ -167,7 +167,7 @@ fn build_cfds(
         Address,
         PunishParams,
     ),
-    oracle_pk: schnorrsig::PublicKey,
+    oracle_pk: XOnlyPublicKey,
     (cet_timelock, refund_timelock): (u32, u32),
     payouts_per_event: HashMap<Announcement, Vec<Payout>>,
     identity_sk: SecretKey,
@@ -209,7 +209,7 @@ fn build_cfds(
         );
 
         let sighash = tx.sighash().to_message();
-        let sig = SECP256K1.sign(&sighash, &identity_sk);
+        let sig = SECP256K1.sign_ecdsa(&sighash, &identity_sk);
 
         (tx.into_inner(), sig)
     };
@@ -311,8 +311,8 @@ pub fn spending_tx_sighash(
 pub fn finalize_spend_transaction(
     mut tx: Transaction,
     spent_descriptor: &Descriptor<PublicKey>,
-    (pk_0, sig_0): (PublicKey, Signature),
-    (pk_1, sig_1): (PublicKey, Signature),
+    (pk_0, sig_0): (PublicKey, ecdsa::Signature),
+    (pk_1, sig_1): (PublicKey, ecdsa::Signature),
 ) -> Result<Transaction> {
     let satisfier = HashMap::from_iter(vec![
         (pk_0, (sig_0, SigHashType::All)),
@@ -348,7 +348,7 @@ pub struct CfdTransactions {
     pub lock: PartiallySignedTransaction,
     pub commit: (Transaction, EcdsaAdaptorSignature),
     pub cets: Vec<Cets>,
-    pub refund: (Transaction, Signature),
+    pub refund: (Transaction, ecdsa::Signature),
 }
 
 /// Group of CETs associated with a particular oracle announcement.
@@ -368,7 +368,7 @@ pub struct Cets {
 #[derive(Debug, Clone, Eq)]
 pub struct Announcement {
     pub id: String,
-    pub nonce_pks: Vec<schnorrsig::PublicKey>,
+    pub nonce_pks: Vec<XOnlyPublicKey>,
 }
 
 impl std::hash::Hash for Announcement {
@@ -482,8 +482,8 @@ impl Payout {
 }
 
 pub fn compute_adaptor_pk(
-    oracle_pk: &schnorrsig::PublicKey,
-    index_nonce_pairs: &[(NonZeroU8, schnorrsig::PublicKey)],
+    oracle_pk: &XOnlyPublicKey,
+    index_nonce_pairs: &[(NonZeroU8, XOnlyPublicKey)],
 ) -> Result<secp256k1_zkp::PublicKey> {
     let attestation_pks = index_nonce_pairs
         .iter()
