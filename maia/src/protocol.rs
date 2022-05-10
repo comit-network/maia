@@ -370,10 +370,10 @@ fn update_payout_fee(
         }
         (false, true) => {
             updated.maker_amount = Amount::ZERO;
-            updated.taker_amount = taker_amount - (fee + maker_amount);
+            updated.taker_amount = taker_amount - fee + maker_amount;
         }
         (true, false) => {
-            updated.maker_amount = maker_amount - (fee + taker_amount);
+            updated.maker_amount = maker_amount - fee + taker_amount;
             updated.taker_amount = Amount::ZERO;
         }
         (false, false) => bail!("Amounts are too small, could not subtract fee."),
@@ -473,7 +473,7 @@ mod tests {
             assert_eq!(amounts.maker_amount, Amount::from_sat(0));
             assert_eq!(
                 amounts.taker_amount,
-                Amount::from_sat(orig_taker_amount - (fee + orig_maker_amount))
+                Amount::from_sat(orig_taker_amount - fee + orig_maker_amount)
             );
         }
     }
