@@ -4,8 +4,8 @@ pub use transactions::{close_transaction, punish_transaction};
 use crate::oracle;
 use crate::protocol::sighash_ext::SigHashExt;
 use crate::protocol::transactions::{
-    lock_transaction, CommitTransaction, ContractExecutionTransaction as ContractExecutionTx,
-    RefundTransaction,
+    lock_transaction, subtract_fee, CommitTransaction,
+    ContractExecutionTransaction as ContractExecutionTx, RefundTransaction,
 };
 use anyhow::{bail, Context, Result};
 use bdk::bitcoin::hashes::hex::ToHex;
@@ -354,30 +354,15 @@ fn update_payout_fee(
         maker_amount,
         taker_amount,
     };
-    match (
-        maker_amount
-            .checked_sub(fee / 2)
-            .map(|a| a > dust_limit_maker)
-            .unwrap_or(false),
-        taker_amount
-            .checked_sub(fee / 2)
-            .map(|a| a > dust_limit_taker)
-            .unwrap_or(false),
-    ) {
-        (true, true) => {
-            updated.maker_amount -= fee / 2;
-            updated.taker_amount -= fee / 2;
-        }
-        (false, true) => {
-            updated.maker_amount = Amount::ZERO;
-            updated.taker_amount = taker_amount - fee + maker_amount;
-        }
-        (true, false) => {
-            updated.maker_amount = maker_amount - fee + taker_amount;
-            updated.taker_amount = Amount::ZERO;
-        }
-        (false, false) => bail!("Amounts are too small, could not subtract fee."),
-    }
+    let (maker_amount, taker_amount) = subtract_fee(
+        fee,
+        dust_limit_maker,
+        dust_limit_taker,
+        maker_amount,
+        taker_amount,
+    )?;
+    updated.maker_amount = maker_amount;
+    updated.taker_amount = taker_amount;
     Ok(updated)
 }
 

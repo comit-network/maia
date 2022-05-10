@@ -1,7 +1,7 @@
 use crate::protocol::sighash_ext::SigHashExt;
 use crate::protocol::txin_ext::TxInExt;
 use crate::protocol::{commit_descriptor, compute_adaptor_pk, lock_descriptor};
-use anyhow::{Context, Result};
+use anyhow::{bail, Context, Result};
 use bdk::bitcoin::util::bip143::SigHashCache;
 use bdk::bitcoin::util::psbt::{Global, PartiallySignedTransaction};
 use bdk::bitcoin::{
@@ -362,22 +362,37 @@ pub fn close_transaction(
     // TODO: The fee could take into account the network state in this
     // case, since this transaction is to be broadcast immediately
     // after building and signing it
-    let (maker_fee, taker_fee) = Fee::new(SIGNED_VBYTES, fee_rate as f64).split();
+    let fee = Fee::new(SIGNED_VBYTES, fee_rate as f64);
 
-    let maker_output = TxOut {
-        value: maker_amount.as_sat() - maker_fee,
-        script_pubkey: maker_address.script_pubkey(),
+    let (maker_amount, taker_amount) = subtract_fee(
+        Amount::from_sat(fee.as_u64()),
+        maker_address.script_pubkey().dust_value(),
+        taker_address.script_pubkey().dust_value(),
+        maker_amount,
+        taker_amount,
+    )?;
+
+    // We don't include ZERO outputs in the final transaction
+    let mut output = vec![];
+    if maker_amount > Amount::ZERO {
+        output.push(TxOut {
+            value: maker_amount.as_sat(),
+            script_pubkey: maker_address.script_pubkey(),
+        })
     };
-    let taker_output = TxOut {
-        value: taker_amount.as_sat() - taker_fee,
-        script_pubkey: taker_address.script_pubkey(),
+
+    if taker_amount > Amount::ZERO {
+        output.push(TxOut {
+            value: taker_amount.as_sat(),
+            script_pubkey: taker_address.script_pubkey(),
+        })
     };
 
     let tx = Transaction {
         version: 2,
         lock_time: 0,
         input: vec![lock_input],
-        output: vec![maker_output, taker_output],
+        output,
     };
 
     let sighash = SigHashCache::new(&tx)
@@ -513,16 +528,48 @@ impl Fee {
         self.fee.ceil() as u64
     }
 
+    #[cfg(test)]
     fn split(&self) -> (u64, u64) {
         let half = self.as_u64() / 2;
         (half as u64, self.as_u64() - half)
     }
 }
 
+/// Subtracts fee fairly from given amounts
+///
+/// We need to consider a few cases:
+/// - If both amounts are >= DUST, they share the fee equally
+/// - If one amount is < DUST, it set to 0 and the other output needs to cover for the fee.
+pub fn subtract_fee(
+    fee: Amount,
+    dust_limit_maker: Amount,
+    dust_limit_taker: Amount,
+    amount_maker: Amount,
+    amount_taker: Amount,
+) -> Result<(Amount, Amount)> {
+    let (amount_maker, amount_taker) = match (
+        amount_maker
+            .checked_sub(fee / 2)
+            .map(|a| a > dust_limit_maker)
+            .unwrap_or(false),
+        amount_taker
+            .checked_sub(fee / 2)
+            .map(|a| a > dust_limit_taker)
+            .unwrap_or(false),
+    ) {
+        (true, true) => (amount_maker - fee / 2, amount_taker - fee / 2),
+        (false, true) => (Amount::ZERO, amount_taker - fee + amount_maker),
+        (true, false) => (amount_maker - fee + amount_taker, Amount::ZERO),
+        (false, false) => bail!("Amounts are too small, could not subtract fee."),
+    };
+    Ok((amount_maker, amount_taker))
+}
+
 #[cfg(test)]
 mod tests {
     use super::*;
     use proptest::prelude::*;
+    use std::str::FromStr;
 
     proptest! {
         #[test]
@@ -587,5 +634,171 @@ mod tests {
         assert_eq!(maker_fee, 1);
         assert_eq!(taker_fee, 2);
         assert!((maker_fee + taker_fee) as f64 >= SIGNED_VBYTES_TEST);
+    }
+
+    #[test]
+    fn given_both_above_dust_then_equal_fee_distribution() {
+        let dummy_address = dummy_maker_address();
+        let dummy_dust_limit = dummy_address.script_pubkey().dust_value();
+
+        let orig_maker_amount = Amount::from_sat(1000);
+        let orig_taker_amount = Amount::from_sat(1000);
+
+        let fee = Amount::from_sat(170);
+        let (maker_amount, taker_amount) = subtract_fee(
+            fee,
+            dummy_dust_limit,
+            dummy_dust_limit,
+            orig_maker_amount,
+            orig_taker_amount,
+        )
+        .unwrap();
+        assert_eq!(maker_amount + Amount::from_sat(85), orig_maker_amount);
+        assert_eq!(taker_amount + Amount::from_sat(85), orig_taker_amount);
+    }
+
+    #[test]
+    fn given_first_below_dust_then_second_pays_fee() {
+        let dummy_address = dummy_maker_address();
+        let dummy_dust_limit = dummy_address.script_pubkey().dust_value();
+
+        let orig_maker_amount = dummy_dust_limit - Amount::ONE_SAT;
+        let orig_taker_amount = Amount::from_sat(1000);
+
+        let fee = Amount::from_sat(170);
+        let (maker_amount, taker_amount) = subtract_fee(
+            fee,
+            dummy_dust_limit,
+            dummy_dust_limit,
+            orig_maker_amount,
+            orig_taker_amount,
+        )
+        .unwrap();
+        assert_eq!(maker_amount, Amount::ZERO);
+        assert_eq!(
+            taker_amount,
+            orig_taker_amount - Amount::from_sat(170) + orig_maker_amount
+        );
+    }
+
+    #[test]
+    fn given_second_below_dust_then_first_pays_fee() {
+        let dummy_address = dummy_maker_address();
+        let dummy_dust_limit = dummy_address.script_pubkey().dust_value();
+
+        let orig_maker_amount = Amount::from_sat(1000);
+        let orig_taker_amount = dummy_dust_limit - Amount::ONE_SAT;
+
+        let fee = Amount::from_sat(170);
+        let (maker_amount, taker_amount) = subtract_fee(
+            fee,
+            dummy_dust_limit,
+            dummy_dust_limit,
+            orig_maker_amount,
+            orig_taker_amount,
+        )
+        .unwrap();
+        assert_eq!(
+            maker_amount,
+            orig_maker_amount - Amount::from_sat(170) + orig_taker_amount
+        );
+        assert_eq!(taker_amount, Amount::ZERO);
+    }
+
+    #[test]
+    fn given_both_below_dust_then_error() {
+        let dummy_address = dummy_maker_address();
+        let dummy_dust_limit = dummy_address.script_pubkey().dust_value();
+
+        let orig_maker_amount = dummy_dust_limit - Amount::ONE_SAT;
+        let orig_taker_amount = dummy_dust_limit - Amount::ONE_SAT;
+
+        let fee = Amount::from_sat(170);
+        assert!(subtract_fee(
+            fee,
+            dummy_dust_limit,
+            dummy_dust_limit,
+            orig_maker_amount,
+            orig_taker_amount,
+        )
+        .is_err());
+    }
+
+    #[test]
+    fn given_both_amount_zero_then_error() {
+        let dummy_address = dummy_maker_address();
+        let dummy_dust_limit = dummy_address.script_pubkey().dust_value();
+
+        let orig_maker_amount = Amount::ZERO;
+        let orig_taker_amount = Amount::ZERO;
+
+        let fee = Amount::from_sat(170);
+        assert!(subtract_fee(
+            fee,
+            dummy_dust_limit,
+            dummy_dust_limit,
+            orig_maker_amount,
+            orig_taker_amount,
+        )
+        .is_err());
+    }
+
+    #[test]
+    fn full_close_transaction_test_with_one_amount_below_dust_then_only_one_output_exists() {
+        let dummy_descriptor = dummy_descriptor();
+        let maker_address = dummy_maker_address();
+        let taker_address = dummy_taker_address();
+
+        let amount = Amount::from_sat(100000);
+        let maker_amount = Amount::from_sat(100000);
+        let taker_amount = Amount::ZERO;
+        let (tx, _) = close_transaction(
+            &dummy_descriptor,
+            OutPoint::default(),
+            amount,
+            (&maker_address, maker_amount),
+            (&taker_address, taker_amount),
+            1,
+        )
+        .unwrap();
+
+        assert_eq!(tx.output[0].script_pubkey, maker_address.script_pubkey());
+        assert!(tx.output.get(1).is_none());
+    }
+
+    #[test]
+    fn full_close_transaction_test_with_both_amounts_above_dust_then_both_outputs_exist() {
+        let dummy_descriptor = dummy_descriptor();
+        let maker_address = dummy_maker_address();
+        let taker_address = dummy_taker_address();
+
+        let amount = Amount::from_sat(100000);
+        let maker_amount = Amount::from_sat(100000);
+        let taker_amount = Amount::from_sat(100000);
+        let (tx, _) = close_transaction(
+            &dummy_descriptor,
+            OutPoint::default(),
+            amount,
+            (&maker_address, maker_amount),
+            (&taker_address, taker_amount),
+            1,
+        )
+        .unwrap();
+
+        assert_eq!(tx.output[0].script_pubkey, maker_address.script_pubkey());
+        assert_eq!(tx.output[1].script_pubkey, taker_address.script_pubkey());
+    }
+
+    fn dummy_descriptor() -> Descriptor<PublicKey> {
+        Descriptor::<PublicKey>::from_str(
+            "pk(020000000000000000000000000000000000000000000000000000000000000002)",
+        )
+        .unwrap()
+    }
+    fn dummy_maker_address() -> Address {
+        Address::from_str("bc1qpq2cfgz5lktxzr5zqv7nrzz46hsvq3492ump9pz8rzcl8wqtwqcspx5y6a").unwrap()
+    }
+    fn dummy_taker_address() -> Address {
+        Address::from_str("325zcVBN5o2eqqqtGwPjmtDd8dJRyYP82s").unwrap()
     }
 }
