@@ -8,9 +8,12 @@ use bdk::{FeeRate, SignOptions};
 use bitcoin::util::psbt::PartiallySignedTransaction;
 use maia::{
     close_transaction, commit_descriptor, compute_adaptor_pk, create_cfd_transactions,
-    finalize_spend_transaction, generate_payouts, interval, lock_descriptor, punish_transaction,
-    renew_cfd_transactions, spending_tx_sighash, Announcement, Cets, CfdTransactions, PartyParams,
-    Payout, PunishParams, TransactionExt, TxBuilderExt,
+    finalize_spend_transaction, lock_descriptor, punish_transaction, renew_cfd_transactions,
+    spending_tx_sighash,
+};
+use maia_core::{
+    generate_payouts, interval, Announcement, Cets, CfdTransactions, PartyParams, Payout,
+    PunishParams, TransactionExt, TxBuilderExt,
 };
 use rand::{thread_rng, CryptoRng, RngCore};
 use secp256k1_zkp::{schnorrsig, EcdsaAdaptorSignature, SecretKey, Signature, SECP256K1};

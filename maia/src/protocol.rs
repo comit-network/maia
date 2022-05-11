@@ -1,57 +1,29 @@
-use bdk::wallet::coin_selection::CoinSelectionAlgorithm;
-use bdk::wallet::tx_builder::CreateTx;
-pub use transaction_ext::TransactionExt;
+use maia_core::{Announcement, Cets, CfdTransactions, PartyParams, Payout, PunishParams};
 pub use transactions::{close_transaction, punish_transaction};
 
+use crate::oracle;
 use crate::protocol::sighash_ext::SigHashExt;
 use crate::protocol::transactions::{
     lock_transaction, CommitTransaction, ContractExecutionTransaction as ContractExecutionTx,
     RefundTransaction,
 };
-use crate::{interval, oracle};
 use anyhow::{bail, Context, Result};
 use bdk::bitcoin::hashes::hex::ToHex;
 use bdk::bitcoin::util::bip143::SigHashCache;
 use bdk::bitcoin::util::psbt::PartiallySignedTransaction;
 use bdk::bitcoin::{Address, Amount, PublicKey, SigHashType, Transaction, TxOut};
-use bdk::database::BatchDatabase;
 use bdk::descriptor::Descriptor;
 use bdk::miniscript::descriptor::Wsh;
 use bdk::miniscript::DescriptorTrait;
-use bdk::TxBuilder;
 use itertools::Itertools;
-use secp256k1_zkp::{self, schnorrsig, EcdsaAdaptorSignature, SecretKey, Signature, SECP256K1};
+use secp256k1_zkp::{self, schnorrsig, SecretKey, Signature, SECP256K1};
 use std::collections::HashMap;
-use std::hash::Hasher;
 use std::iter::FromIterator;
 use std::num::NonZeroU8;
-use std::ops::RangeInclusive;
 
 mod sighash_ext;
-mod transaction_ext;
 mod transactions;
 mod txin_ext;
-
-/// Static script to be used to create lock tx
-const DUMMY_2OF2_MULTISIG: &str =
-    "0020b5aa99ed7e0fa92483eb045ab8b7a59146d4d9f6653f21ba729b4331895a5b46";
-
-pub trait TxBuilderExt {
-    fn add_2of2_multisig_recipient(&mut self, amount: Amount) -> &mut Self;
-}
-
-impl<'w, D, CS> TxBuilderExt for TxBuilder<'_, D, CS, CreateTx>
-where
-    D: BatchDatabase,
-    CS: CoinSelectionAlgorithm<D>,
-{
-    fn add_2of2_multisig_recipient(&mut self, amount: Amount) -> &mut Self {
-        self.add_recipient(
-            DUMMY_2OF2_MULTISIG.parse().expect("Should be valid script"),
-            amount.as_sat(),
-        )
-    }
-}
 
 /// Build all the transactions and some of the signatures and
 /// encrypted signatures needed to perform the CFD protocol.
@@ -231,7 +203,7 @@ fn build_cfds(
 
                     let encsig = cet.encsign(identity_sk, &oracle_pk)?;
 
-                    Ok((cet.into_inner(), encsig, payout.digits.clone()))
+                    Ok((cet.into_inner(), encsig, payout.digits().clone()))
                 })
                 .collect::<Result<Vec<_>>>()
                 .context("cannot build and sign all cets")?;
@@ -329,96 +301,21 @@ pub fn finalize_spend_transaction(
     Ok(tx)
 }
 
-#[derive(Clone, Debug)]
-pub struct PartyParams {
-    pub lock_psbt: PartiallySignedTransaction,
-    pub identity_pk: PublicKey,
-    pub lock_amount: Amount,
-    pub address: Address,
-}
-
-#[derive(Debug, Copy, Clone)]
-pub struct PunishParams {
-    pub revocation_pk: PublicKey,
-    pub publish_pk: PublicKey,
-}
-
-#[derive(Debug, Clone)]
-pub struct CfdTransactions {
-    pub lock: PartiallySignedTransaction,
-    pub commit: (Transaction, EcdsaAdaptorSignature),
-    pub cets: Vec<Cets>,
-    pub refund: (Transaction, Signature),
-}
-
-/// Group of CETs associated with a particular oracle announcement.
-///
-/// All of the adaptor signatures included will be _possibly_ unlocked
-/// by the attestation corresponding to the announcement. In practice,
-/// only one of the adaptor signatures should be unlocked if the
-/// payout intervals are constructed correctly. To check if an adaptor
-/// signature can be unlocked by a price attestation, verify whether
-/// the price attested to lies within its interval.
-#[derive(Debug, Clone)]
-pub struct Cets {
-    pub event: Announcement,
-    pub cets: Vec<(Transaction, EcdsaAdaptorSignature, interval::Digits)>,
-}
-
-#[derive(Debug, Clone, Eq)]
-pub struct Announcement {
-    pub id: String,
-    pub nonce_pks: Vec<schnorrsig::PublicKey>,
-}
-
-impl std::hash::Hash for Announcement {
-    fn hash<H: Hasher>(&self, state: &mut H) {
-        self.id.hash(state)
-    }
-}
-
-impl PartialEq for Announcement {
-    fn eq(&self, other: &Self) -> bool {
-        self.id.eq(&other.id)
-    }
-}
-
-#[derive(Debug, Clone, PartialEq)]
-pub struct Payout {
-    digits: interval::Digits,
+struct PayoutAmounts {
     maker_amount: Amount,
     taker_amount: Amount,
 }
 
-pub fn generate_payouts(
-    range: RangeInclusive<u64>,
-    maker_amount: Amount,
-    taker_amount: Amount,
-) -> Result<Vec<Payout>> {
-    let digits = interval::Digits::new(range).context("invalid interval")?;
-    Ok(digits
-        .into_iter()
-        .map(|digits| Payout {
-            digits,
-            maker_amount,
-            taker_amount,
-        })
-        .collect())
+impl From<Payout> for PayoutAmounts {
+    fn from(payout: Payout) -> Self {
+        Self {
+            maker_amount: *payout.maker_amount(),
+            taker_amount: *payout.taker_amount(),
+        }
+    }
 }
 
-impl Payout {
-    pub fn digits(&self) -> &interval::Digits {
-        &self.digits
-    }
-
-    pub fn maker_amount(&self) -> &Amount {
-        &self.maker_amount
-    }
-
-    pub fn taker_amount(&self) -> &Amount {
-        &self.taker_amount
-    }
-
+impl PayoutAmounts {
     fn into_txouts(self, maker_address: &Address, taker_address: &Address) -> Vec<TxOut> {
         let txouts = [
             (self.maker_amount, maker_address),
@@ -437,48 +334,51 @@ impl Payout {
 
         txouts
     }
+}
 
-    /// Subtracts fee fairly from both outputs
-    ///
-    /// We need to consider a few cases:
-    /// - If both amounts are >= DUST, they share the fee equally
-    /// - If one amount is < DUST, it set to 0 and the other output needs to cover for the fee.
-    fn with_updated_fee(
-        self,
-        fee: Amount,
-        dust_limit_maker: Amount,
-        dust_limit_taker: Amount,
-    ) -> Result<Self> {
-        let maker_amount = self.maker_amount;
-        let taker_amount = self.taker_amount;
+/// Subtracts fee fairly from both outputs
+///
+/// We need to consider a few cases:
+/// - If both amounts are >= DUST, they share the fee equally
+/// - If one amount is < DUST, it set to 0 and the other output needs to cover for the fee.
+fn update_payout_fee(
+    payout_amounts: PayoutAmounts,
+    fee: Amount,
+    dust_limit_maker: Amount,
+    dust_limit_taker: Amount,
+) -> Result<PayoutAmounts> {
+    let maker_amount = payout_amounts.maker_amount;
+    let taker_amount = payout_amounts.taker_amount;
 
-        let mut updated = self;
-        match (
-            maker_amount
-                .checked_sub(fee / 2)
-                .map(|a| a > dust_limit_maker)
-                .unwrap_or(false),
-            taker_amount
-                .checked_sub(fee / 2)
-                .map(|a| a > dust_limit_taker)
-                .unwrap_or(false),
-        ) {
-            (true, true) => {
-                updated.maker_amount -= fee / 2;
-                updated.taker_amount -= fee / 2;
-            }
-            (false, true) => {
-                updated.maker_amount = Amount::ZERO;
-                updated.taker_amount = taker_amount - (fee + maker_amount);
-            }
-            (true, false) => {
-                updated.maker_amount = maker_amount - (fee + taker_amount);
-                updated.taker_amount = Amount::ZERO;
-            }
-            (false, false) => bail!("Amounts are too small, could not subtract fee."),
+    let mut updated = PayoutAmounts {
+        maker_amount,
+        taker_amount,
+    };
+    match (
+        maker_amount
+            .checked_sub(fee / 2)
+            .map(|a| a > dust_limit_maker)
+            .unwrap_or(false),
+        taker_amount
+            .checked_sub(fee / 2)
+            .map(|a| a > dust_limit_taker)
+            .unwrap_or(false),
+    ) {
+        (true, true) => {
+            updated.maker_amount -= fee / 2;
+            updated.taker_amount -= fee / 2;
         }
-        Ok(updated)
+        (false, true) => {
+            updated.maker_amount = Amount::ZERO;
+            updated.taker_amount = taker_amount - (fee + maker_amount);
+        }
+        (true, false) => {
+            updated.maker_amount = maker_amount - (fee + taker_amount);
+            updated.taker_amount = Amount::ZERO;
+        }
+        (false, false) => bail!("Amounts are too small, could not subtract fee."),
     }
+    Ok(updated)
 }
 
 pub fn compute_adaptor_pk(
@@ -501,6 +401,7 @@ mod tests {
     use super::*;
 
     use bdk::bitcoin::Network;
+    use maia_core::generate_payouts;
 
     // TODO add proptest for this
 
@@ -523,9 +424,13 @@ mod tests {
         let fee = 100;
 
         for payout in payouts {
-            let updated_payout = payout
-                .with_updated_fee(Amount::from_sat(fee), dummy_dust_limit, dummy_dust_limit)
-                .unwrap();
+            let updated_payout = update_payout_fee(
+                payout.into(),
+                Amount::from_sat(fee),
+                dummy_dust_limit,
+                dummy_dust_limit,
+            )
+            .unwrap();
 
             assert_eq!(
                 updated_payout.maker_amount,
@@ -557,13 +462,17 @@ mod tests {
         let fee = 100;
 
         for payout in payouts {
-            let updated_payout = payout
-                .with_updated_fee(Amount::from_sat(fee), dummy_dust_limit, dummy_dust_limit)
-                .unwrap();
+            let amounts = update_payout_fee(
+                payout.into(),
+                Amount::from_sat(fee),
+                dummy_dust_limit,
+                dummy_dust_limit,
+            )
+            .unwrap();
 
-            assert_eq!(updated_payout.maker_amount, Amount::from_sat(0));
+            assert_eq!(amounts.maker_amount, Amount::from_sat(0));
             assert_eq!(
-                updated_payout.taker_amount,
+                amounts.taker_amount,
                 Amount::from_sat(orig_taker_amount - (fee + orig_maker_amount))
             );
         }

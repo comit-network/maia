@@ -1,5 +1,6 @@
 [workspace]
 members = [
   "maia",
+  "maia-core",
 ]
 resolver = "2"
