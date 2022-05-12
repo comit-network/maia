@@ -1,9 +1,6 @@
 use crate::protocol::sighash_ext::SigHashExt;
-use crate::protocol::transaction_ext::TransactionExt;
 use crate::protocol::txin_ext::TxInExt;
-use crate::protocol::{
-    commit_descriptor, compute_adaptor_pk, lock_descriptor, Payout, DUMMY_2OF2_MULTISIG,
-};
+use crate::protocol::{commit_descriptor, compute_adaptor_pk, lock_descriptor};
 use anyhow::{Context, Result};
 use bdk::bitcoin::util::bip143::SigHashCache;
 use bdk::bitcoin::util::psbt::{Global, PartiallySignedTransaction};
@@ -13,10 +10,13 @@ use bdk::bitcoin::{
 use bdk::descriptor::Descriptor;
 use bdk::miniscript::DescriptorTrait;
 use itertools::Itertools;
+use maia_core::{Payout, TransactionExt, DUMMY_2OF2_MULTISIG};
 use secp256k1_zkp::{self, schnorrsig, EcdsaAdaptorSignature, SecretKey, SECP256K1};
 use std::collections::HashMap;
 use std::iter::FromIterator;
 use std::num::NonZeroU8;
+
+use super::update_payout_fee;
 
 /// In satoshi per vbyte.
 const SATS_PER_VBYTE: f64 = 1.0;
@@ -209,7 +209,7 @@ impl ContractExecutionTransaction {
         relative_timelock_in_blocks: u32,
     ) -> Result<Self> {
         let index_nonce_pairs: Vec<_> = payout
-            .digits
+            .digits()
             .to_indices()
             .into_iter()
             .zip(nonce_pks.iter().cloned())
@@ -222,13 +222,13 @@ impl ContractExecutionTransaction {
         };
 
         let fee = Fee::new_with_default_rate(Self::SIGNED_VBYTES).add(commit_tx.fee() as f64);
-        let output = payout
-            .with_updated_fee(
-                Amount::from_sat(fee.as_u64()),
-                maker_address.script_pubkey().dust_value(),
-                taker_address.script_pubkey().dust_value(),
-            )?
-            .into_txouts(maker_address, taker_address);
+        let output = update_payout_fee(
+            payout.into(),
+            Amount::from_sat(fee.as_u64()),
+            maker_address.script_pubkey().dust_value(),
+            taker_address.script_pubkey().dust_value(),
+        )?
+        .into_txouts(maker_address, taker_address);
 
         let tx = Transaction {
             version: 2,
