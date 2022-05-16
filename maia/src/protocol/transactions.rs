@@ -527,12 +527,6 @@ impl Fee {
         // Ceil to prevent going lower than the min relay fee
         self.fee.ceil() as u64
     }
-
-    #[cfg(test)]
-    fn split(&self) -> (u64, u64) {
-        let half = self.as_u64() / 2;
-        (half as u64, self.as_u64() - half)
-    }
 }
 
 /// Subtracts fee fairly from given amounts
@@ -568,73 +562,7 @@ pub fn subtract_fee(
 #[cfg(test)]
 mod tests {
     use super::*;
-    use proptest::prelude::*;
     use std::str::FromStr;
-
-    proptest! {
-        #[test]
-        fn test_fee_always_above_min_relay_fee(signed_vbytes in 1.0f64..100_000_000.0f64) {
-            let fee = Fee::new_with_default_rate(signed_vbytes);
-            let (maker_fee, taker_fee) = fee.split();
-
-            prop_assert!(signed_vbytes <= fee.as_u64() as f64);
-            prop_assert!(signed_vbytes <= (maker_fee + taker_fee) as f64);
-        }
-    }
-
-    // A bunch of tests illustrating how fees are split
-
-    #[test]
-    fn test_splitting_fee_1_0() {
-        const SIGNED_VBYTES_TEST: f64 = 1.0;
-
-        let fee = Fee::new_with_default_rate(SIGNED_VBYTES_TEST);
-        let (maker_fee, taker_fee) = fee.split();
-
-        assert_eq!(fee.as_u64(), 1);
-        assert_eq!(maker_fee, 0);
-        assert_eq!(taker_fee, 1);
-        assert!((maker_fee + taker_fee) as f64 >= SIGNED_VBYTES_TEST);
-    }
-
-    #[test]
-    fn test_splitting_fee_2_0() {
-        const SIGNED_VBYTES_TEST: f64 = 2.0;
-
-        let fee = Fee::new_with_default_rate(SIGNED_VBYTES_TEST);
-        let (maker_fee, taker_fee) = fee.split();
-
-        assert_eq!(fee.as_u64(), 2);
-        assert_eq!(maker_fee, 1);
-        assert_eq!(taker_fee, 1);
-        assert!((maker_fee + taker_fee) as f64 >= SIGNED_VBYTES_TEST);
-    }
-
-    #[test]
-    fn test_splitting_fee_2_1() {
-        const SIGNED_VBYTES_TEST: f64 = 2.1;
-
-        let fee = Fee::new_with_default_rate(SIGNED_VBYTES_TEST);
-        let (maker_fee, taker_fee) = fee.split();
-
-        assert_eq!(fee.as_u64(), 3);
-        assert_eq!(maker_fee, 1);
-        assert_eq!(taker_fee, 2);
-        assert!((maker_fee + taker_fee) as f64 >= SIGNED_VBYTES_TEST);
-    }
-
-    #[test]
-    fn test_splitting_fee_2_6() {
-        const SIGNED_VBYTES_TEST: f64 = 2.6;
-
-        let fee = Fee::new_with_default_rate(SIGNED_VBYTES_TEST);
-        let (maker_fee, taker_fee) = fee.split();
-
-        assert_eq!(fee.as_u64(), 3);
-        assert_eq!(maker_fee, 1);
-        assert_eq!(taker_fee, 2);
-        assert!((maker_fee + taker_fee) as f64 >= SIGNED_VBYTES_TEST);
-    }
 
     #[test]
     fn given_both_above_dust_then_equal_fee_distribution() {
