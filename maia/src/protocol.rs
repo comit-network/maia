@@ -11,7 +11,7 @@ use anyhow::{bail, Context, Result};
 use bdk::bitcoin::hashes::hex::ToHex;
 use bdk::bitcoin::util::bip143::SigHashCache;
 use bdk::bitcoin::util::psbt::PartiallySignedTransaction;
-use bdk::bitcoin::{Address, Amount, PublicKey, SigHashType, Transaction, TxOut};
+use bdk::bitcoin::{Address, Amount, PublicKey, SigHashType, Transaction};
 use bdk::descriptor::Descriptor;
 use bdk::miniscript::descriptor::Wsh;
 use bdk::miniscript::DescriptorTrait;
@@ -301,86 +301,6 @@ pub fn finalize_spend_transaction(
     Ok(tx)
 }
 
-struct PayoutAmounts {
-    maker_amount: Amount,
-    taker_amount: Amount,
-}
-
-impl From<Payout> for PayoutAmounts {
-    fn from(payout: Payout) -> Self {
-        Self {
-            maker_amount: *payout.maker_amount(),
-            taker_amount: *payout.taker_amount(),
-        }
-    }
-}
-
-impl PayoutAmounts {
-    fn into_txouts(self, maker_address: &Address, taker_address: &Address) -> Vec<TxOut> {
-        let txouts = [
-            (self.maker_amount, maker_address),
-            (self.taker_amount, taker_address),
-        ]
-        .iter()
-        .filter_map(|(amount, address)| {
-            let script_pubkey = address.script_pubkey();
-            let dust_limit = script_pubkey.dust_value();
-            (amount >= &dust_limit).then(|| TxOut {
-                value: amount.as_sat(),
-                script_pubkey,
-            })
-        })
-        .collect::<Vec<_>>();
-
-        txouts
-    }
-}
-
-/// Subtracts fee fairly from both outputs
-///
-/// We need to consider a few cases:
-/// - If both amounts are >= DUST, they share the fee equally
-/// - If one amount is < DUST, it set to 0 and the other output needs to cover for the fee.
-fn update_payout_fee(
-    payout_amounts: PayoutAmounts,
-    fee: Amount,
-    dust_limit_maker: Amount,
-    dust_limit_taker: Amount,
-) -> Result<PayoutAmounts> {
-    let maker_amount = payout_amounts.maker_amount;
-    let taker_amount = payout_amounts.taker_amount;
-
-    let mut updated = PayoutAmounts {
-        maker_amount,
-        taker_amount,
-    };
-    match (
-        maker_amount
-            .checked_sub(fee / 2)
-            .map(|a| a > dust_limit_maker)
-            .unwrap_or(false),
-        taker_amount
-            .checked_sub(fee / 2)
-            .map(|a| a > dust_limit_taker)
-            .unwrap_or(false),
-    ) {
-        (true, true) => {
-            updated.maker_amount -= fee / 2;
-            updated.taker_amount -= fee / 2;
-        }
-        (false, true) => {
-            updated.maker_amount = Amount::ZERO;
-            updated.taker_amount = taker_amount - (fee + maker_amount);
-        }
-        (true, false) => {
-            updated.maker_amount = maker_amount - (fee + taker_amount);
-            updated.taker_amount = Amount::ZERO;
-        }
-        (false, false) => bail!("Amounts are too small, could not subtract fee."),
-    }
-    Ok(updated)
-}
-
 pub fn compute_adaptor_pk(
     oracle_pk: &schnorrsig::PublicKey,
     index_nonce_pairs: &[(NonZeroU8, schnorrsig::PublicKey)],
@@ -394,87 +314,4 @@ pub fn compute_adaptor_pk(
     )?;
 
     Ok(adaptor_pk)
-}
-
-#[cfg(test)]
-mod tests {
-    use super::*;
-
-    use bdk::bitcoin::Network;
-    use maia_core::generate_payouts;
-
-    // TODO add proptest for this
-
-    #[test]
-    fn test_fee_subtraction_bigger_than_dust() {
-        let key = "032e58afe51f9ed8ad3cc7897f634d881fdbe49a81564629ded8156bebd2ffd1af"
-            .parse()
-            .unwrap();
-        let dummy_address = Address::p2wpkh(&key, Network::Regtest).unwrap();
-        let dummy_dust_limit = dummy_address.script_pubkey().dust_value();
-
-        let orig_maker_amount = 1000;
-        let orig_taker_amount = 1000;
-        let payouts = generate_payouts(
-            0..=10_000,
-            Amount::from_sat(orig_maker_amount),
-            Amount::from_sat(orig_taker_amount),
-        )
-        .unwrap();
-        let fee = 100;
-
-        for payout in payouts {
-            let updated_payout = update_payout_fee(
-                payout.into(),
-                Amount::from_sat(fee),
-                dummy_dust_limit,
-                dummy_dust_limit,
-            )
-            .unwrap();
-
-            assert_eq!(
-                updated_payout.maker_amount,
-                Amount::from_sat(orig_maker_amount - fee / 2)
-            );
-            assert_eq!(
-                updated_payout.taker_amount,
-                Amount::from_sat(orig_taker_amount - fee / 2)
-            );
-        }
-    }
-
-    #[test]
-    fn test_fee_subtraction_smaller_than_dust() {
-        let key = "032e58afe51f9ed8ad3cc7897f634d881fdbe49a81564629ded8156bebd2ffd1af"
-            .parse()
-            .unwrap();
-        let dummy_address = Address::p2wpkh(&key, Network::Regtest).unwrap();
-        let dummy_dust_limit = dummy_address.script_pubkey().dust_value();
-
-        let orig_maker_amount = dummy_dust_limit.as_sat() - 1;
-        let orig_taker_amount = 1000;
-        let payouts = generate_payouts(
-            0..=10_000,
-            Amount::from_sat(orig_maker_amount),
-            Amount::from_sat(orig_taker_amount),
-        )
-        .unwrap();
-        let fee = 100;
-
-        for payout in payouts {
-            let amounts = update_payout_fee(
-                payout.into(),
-                Amount::from_sat(fee),
-                dummy_dust_limit,
-                dummy_dust_limit,
-            )
-            .unwrap();
-
-            assert_eq!(amounts.maker_amount, Amount::from_sat(0));
-            assert_eq!(
-                amounts.taker_amount,
-                Amount::from_sat(orig_taker_amount - (fee + orig_maker_amount))
-            );
-        }
-    }
 }
