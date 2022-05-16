@@ -16,8 +16,6 @@ use std::collections::HashMap;
 use std::iter::FromIterator;
 use std::num::NonZeroU8;
 
-use super::update_payout_fee;
-
 /// In satoshi per vbyte.
 const SATS_PER_VBYTE: f64 = 1.0;
 
@@ -222,13 +220,13 @@ impl ContractExecutionTransaction {
         };
 
         let fee = Fee::new_with_default_rate(Self::SIGNED_VBYTES).add(commit_tx.fee() as f64);
-        let output = update_payout_fee(
-            payout.into(),
-            fee,
-            maker_address.script_pubkey().dust_value(),
-            taker_address.script_pubkey().dust_value(),
-        )?
-        .into_txouts(maker_address, taker_address);
+        let output = fee
+            .subtract_fee(
+                maker_address.script_pubkey().dust_value(),
+                taker_address.script_pubkey().dust_value(),
+                payout.into(),
+            )?
+            .into_txouts(maker_address, taker_address);
 
         let tx = Transaction {
             version: 2,
@@ -364,11 +362,16 @@ pub fn close_transaction(
     // after building and signing it
     let fee = Fee::new(SIGNED_VBYTES, fee_rate as f64);
 
-    let (maker_amount, taker_amount) = fee.subtract_fee(
-        maker_address.script_pubkey().dust_value(),
-        taker_address.script_pubkey().dust_value(),
+    let PayoutAmounts {
         maker_amount,
         taker_amount,
+    } = fee.subtract_fee(
+        maker_address.script_pubkey().dust_value(),
+        taker_address.script_pubkey().dust_value(),
+        PayoutAmounts {
+            maker_amount,
+            taker_amount,
+        },
     )?;
 
     // We don't include ZERO outputs in the final transaction
@@ -536,32 +539,75 @@ impl Fee {
         &self,
         dust_limit_maker: Amount,
         dust_limit_taker: Amount,
-        amount_maker: Amount,
-        amount_taker: Amount,
-    ) -> Result<(Amount, Amount)> {
+        amounts: PayoutAmounts,
+    ) -> Result<PayoutAmounts> {
+        let PayoutAmounts {
+            maker_amount,
+            taker_amount,
+        } = amounts;
         let fee = Amount::from_sat(self.fee as u64);
-        let (amount_maker, amount_taker) = match (
-            amount_maker
+        let (maker_amount, taker_amount) = match (
+            maker_amount
                 .checked_sub(fee / 2)
                 .map(|a| a > dust_limit_maker)
                 .unwrap_or(false),
-            amount_taker
+            taker_amount
                 .checked_sub(fee / 2)
                 .map(|a| a > dust_limit_taker)
                 .unwrap_or(false),
         ) {
-            (true, true) => (amount_maker - fee / 2, amount_taker - fee / 2),
-            (false, true) => (Amount::ZERO, amount_taker - fee + amount_maker),
-            (true, false) => (amount_maker - fee + amount_taker, Amount::ZERO),
+            (true, true) => (maker_amount - fee / 2, taker_amount - fee / 2),
+            (false, true) => (Amount::ZERO, taker_amount - fee + maker_amount),
+            (true, false) => (maker_amount - fee + taker_amount, Amount::ZERO),
             (false, false) => bail!("Amounts are too small, could not subtract fee."),
         };
-        Ok((amount_maker, amount_taker))
+        Ok(PayoutAmounts {
+            maker_amount,
+            taker_amount,
+        })
+    }
+}
+
+pub struct PayoutAmounts {
+    maker_amount: Amount,
+    taker_amount: Amount,
+}
+
+impl From<Payout> for PayoutAmounts {
+    fn from(payout: Payout) -> Self {
+        Self {
+            maker_amount: *payout.maker_amount(),
+            taker_amount: *payout.taker_amount(),
+        }
+    }
+}
+
+impl PayoutAmounts {
+    fn into_txouts(self, maker_address: &Address, taker_address: &Address) -> Vec<TxOut> {
+        let txouts = [
+            (self.maker_amount, maker_address),
+            (self.taker_amount, taker_address),
+        ]
+        .iter()
+        .filter_map(|(amount, address)| {
+            let script_pubkey = address.script_pubkey();
+            let dust_limit = script_pubkey.dust_value();
+            (amount >= &dust_limit).then(|| TxOut {
+                value: amount.as_sat(),
+                script_pubkey,
+            })
+        })
+        .collect::<Vec<_>>();
+
+        txouts
     }
 }
 
 #[cfg(test)]
 mod tests {
     use super::*;
+    use bitcoin::Network;
+    use maia_core::generate_payouts;
     use std::str::FromStr;
 
     #[test]
@@ -573,12 +619,17 @@ mod tests {
         let orig_taker_amount = Amount::from_sat(1000);
 
         let fee = Fee::new(170.0, 1.0);
-        let (maker_amount, taker_amount) = fee
+        let PayoutAmounts {
+            maker_amount,
+            taker_amount,
+        } = fee
             .subtract_fee(
                 dummy_dust_limit,
                 dummy_dust_limit,
-                orig_maker_amount,
-                orig_taker_amount,
+                PayoutAmounts {
+                    maker_amount: orig_maker_amount,
+                    taker_amount: orig_taker_amount,
+                },
             )
             .unwrap();
         assert_eq!(maker_amount + Amount::from_sat(85), orig_maker_amount);
@@ -594,12 +645,17 @@ mod tests {
         let orig_taker_amount = Amount::from_sat(1000);
 
         let fee = Fee::new(170.0, 1.0);
-        let (maker_amount, taker_amount) = fee
+        let PayoutAmounts {
+            maker_amount,
+            taker_amount,
+        } = fee
             .subtract_fee(
                 dummy_dust_limit,
                 dummy_dust_limit,
-                orig_maker_amount,
-                orig_taker_amount,
+                PayoutAmounts {
+                    maker_amount: orig_maker_amount,
+                    taker_amount: orig_taker_amount,
+                },
             )
             .unwrap();
         assert_eq!(maker_amount, Amount::ZERO);
@@ -618,12 +674,17 @@ mod tests {
         let orig_taker_amount = dummy_dust_limit - Amount::ONE_SAT;
 
         let fee = Fee::new(170.0, 1.0);
-        let (maker_amount, taker_amount) = fee
+        let PayoutAmounts {
+            maker_amount,
+            taker_amount,
+        } = fee
             .subtract_fee(
                 dummy_dust_limit,
                 dummy_dust_limit,
-                orig_maker_amount,
-                orig_taker_amount,
+                PayoutAmounts {
+                    maker_amount: orig_maker_amount,
+                    taker_amount: orig_taker_amount,
+                },
             )
             .unwrap();
         assert_eq!(
@@ -646,8 +707,10 @@ mod tests {
             .subtract_fee(
                 dummy_dust_limit,
                 dummy_dust_limit,
-                orig_maker_amount,
-                orig_taker_amount,
+                PayoutAmounts {
+                    maker_amount: orig_maker_amount,
+                    taker_amount: orig_taker_amount,
+                },
             )
             .is_err());
     }
@@ -665,8 +728,10 @@ mod tests {
             .subtract_fee(
                 dummy_dust_limit,
                 dummy_dust_limit,
-                orig_maker_amount,
-                orig_taker_amount,
+                PayoutAmounts {
+                    maker_amount: orig_maker_amount,
+                    taker_amount: orig_taker_amount,
+                },
             )
             .is_err());
     }
@@ -715,6 +780,71 @@ mod tests {
 
         assert_eq!(tx.output[0].script_pubkey, maker_address.script_pubkey());
         assert_eq!(tx.output[1].script_pubkey, taker_address.script_pubkey());
+    }
+
+    #[test]
+    fn test_fee_subtraction_bigger_than_dust() {
+        let key = "032e58afe51f9ed8ad3cc7897f634d881fdbe49a81564629ded8156bebd2ffd1af"
+            .parse()
+            .unwrap();
+        let dummy_address = Address::p2wpkh(&key, Network::Regtest).unwrap();
+        let dummy_dust_limit = dummy_address.script_pubkey().dust_value();
+
+        let orig_maker_amount = 1000;
+        let orig_taker_amount = 1000;
+        let payouts = generate_payouts(
+            0..=10_000,
+            Amount::from_sat(orig_maker_amount),
+            Amount::from_sat(orig_taker_amount),
+        )
+        .unwrap();
+        let fee = Fee::new(100.0, 1.0);
+
+        for payout in payouts {
+            let updated_payout = fee
+                .subtract_fee(dummy_dust_limit, dummy_dust_limit, payout.into())
+                .unwrap();
+
+            assert_eq!(
+                updated_payout.maker_amount,
+                Amount::from_sat(orig_maker_amount - fee.as_u64() / 2)
+            );
+            assert_eq!(
+                updated_payout.taker_amount,
+                Amount::from_sat(orig_taker_amount - fee.as_u64() / 2)
+            );
+        }
+    }
+
+    #[test]
+    fn test_fee_subtraction_smaller_than_dust() {
+        let key = "032e58afe51f9ed8ad3cc7897f634d881fdbe49a81564629ded8156bebd2ffd1af"
+            .parse()
+            .unwrap();
+        let dummy_address = Address::p2wpkh(&key, Network::Regtest).unwrap();
+        let dummy_dust_limit = dummy_address.script_pubkey().dust_value();
+
+        let orig_maker_amount = dummy_dust_limit.as_sat() - 1;
+        let orig_taker_amount = 1000;
+        let payouts = generate_payouts(
+            0..=10_000,
+            Amount::from_sat(orig_maker_amount),
+            Amount::from_sat(orig_taker_amount),
+        )
+        .unwrap();
+        let fee = Fee::new(100.0, 1.0);
+
+        for payout in payouts {
+            let amounts = fee
+                .subtract_fee(dummy_dust_limit, dummy_dust_limit, payout.into())
+                .unwrap();
+
+            assert_eq!(amounts.maker_amount, Amount::from_sat(0));
+            assert_eq!(
+                amounts.taker_amount,
+                Amount::from_sat(orig_taker_amount - fee.as_u64() + orig_maker_amount)
+            );
+        }
     }
 
     fn dummy_descriptor() -> Descriptor<PublicKey> {
