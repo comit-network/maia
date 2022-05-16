@@ -224,7 +224,7 @@ impl ContractExecutionTransaction {
         let fee = Fee::new_with_default_rate(Self::SIGNED_VBYTES).add(commit_tx.fee() as f64);
         let output = update_payout_fee(
             payout.into(),
-            Amount::from_sat(fee.as_u64()),
+            fee,
             maker_address.script_pubkey().dust_value(),
             taker_address.script_pubkey().dust_value(),
         )?
@@ -364,8 +364,7 @@ pub fn close_transaction(
     // after building and signing it
     let fee = Fee::new(SIGNED_VBYTES, fee_rate as f64);
 
-    let (maker_amount, taker_amount) = subtract_fee(
-        Amount::from_sat(fee.as_u64()),
+    let (maker_amount, taker_amount) = fee.subtract_fee(
         maker_address.script_pubkey().dust_value(),
         taker_address.script_pubkey().dust_value(),
         maker_amount,
@@ -501,13 +500,13 @@ pub fn punish_transaction(
     Ok(punish_tx)
 }
 
-#[derive(Clone, Debug)]
-struct Fee {
+#[derive(Clone, Debug, Copy)]
+pub struct Fee {
     fee: f64,
 }
 
 impl Fee {
-    fn new(signed_vbytes: f64, rate: f64) -> Self {
+    pub fn new(signed_vbytes: f64, rate: f64) -> Self {
         let fee = signed_vbytes * rate;
         Self { fee }
     }
@@ -523,40 +522,41 @@ impl Fee {
         }
     }
 
-    fn as_u64(&self) -> u64 {
+    pub fn as_u64(&self) -> u64 {
         // Ceil to prevent going lower than the min relay fee
         self.fee.ceil() as u64
     }
-}
 
-/// Subtracts fee fairly from given amounts
-///
-/// We need to consider a few cases:
-/// - If both amounts are >= DUST, they share the fee equally
-/// - If one amount is < DUST, it set to 0 and the other output needs to cover for the fee.
-pub fn subtract_fee(
-    fee: Amount,
-    dust_limit_maker: Amount,
-    dust_limit_taker: Amount,
-    amount_maker: Amount,
-    amount_taker: Amount,
-) -> Result<(Amount, Amount)> {
-    let (amount_maker, amount_taker) = match (
-        amount_maker
-            .checked_sub(fee / 2)
-            .map(|a| a > dust_limit_maker)
-            .unwrap_or(false),
-        amount_taker
-            .checked_sub(fee / 2)
-            .map(|a| a > dust_limit_taker)
-            .unwrap_or(false),
-    ) {
-        (true, true) => (amount_maker - fee / 2, amount_taker - fee / 2),
-        (false, true) => (Amount::ZERO, amount_taker - fee + amount_maker),
-        (true, false) => (amount_maker - fee + amount_taker, Amount::ZERO),
-        (false, false) => bail!("Amounts are too small, could not subtract fee."),
-    };
-    Ok((amount_maker, amount_taker))
+    /// Subtracts fee fairly from given amounts
+    ///
+    /// We need to consider a few cases:
+    /// - If both amounts are >= DUST, they share the fee equally
+    /// - If one amount is < DUST, it set to 0 and the other output needs to cover for the fee.
+    pub fn subtract_fee(
+        &self,
+        dust_limit_maker: Amount,
+        dust_limit_taker: Amount,
+        amount_maker: Amount,
+        amount_taker: Amount,
+    ) -> Result<(Amount, Amount)> {
+        let fee = Amount::from_sat(self.fee as u64);
+        let (amount_maker, amount_taker) = match (
+            amount_maker
+                .checked_sub(fee / 2)
+                .map(|a| a > dust_limit_maker)
+                .unwrap_or(false),
+            amount_taker
+                .checked_sub(fee / 2)
+                .map(|a| a > dust_limit_taker)
+                .unwrap_or(false),
+        ) {
+            (true, true) => (amount_maker - fee / 2, amount_taker - fee / 2),
+            (false, true) => (Amount::ZERO, amount_taker - fee + amount_maker),
+            (true, false) => (amount_maker - fee + amount_taker, Amount::ZERO),
+            (false, false) => bail!("Amounts are too small, could not subtract fee."),
+        };
+        Ok((amount_maker, amount_taker))
+    }
 }
 
 #[cfg(test)]
@@ -572,15 +572,15 @@ mod tests {
         let orig_maker_amount = Amount::from_sat(1000);
         let orig_taker_amount = Amount::from_sat(1000);
 
-        let fee = Amount::from_sat(170);
-        let (maker_amount, taker_amount) = subtract_fee(
-            fee,
-            dummy_dust_limit,
-            dummy_dust_limit,
-            orig_maker_amount,
-            orig_taker_amount,
-        )
-        .unwrap();
+        let fee = Fee::new(170.0, 1.0);
+        let (maker_amount, taker_amount) = fee
+            .subtract_fee(
+                dummy_dust_limit,
+                dummy_dust_limit,
+                orig_maker_amount,
+                orig_taker_amount,
+            )
+            .unwrap();
         assert_eq!(maker_amount + Amount::from_sat(85), orig_maker_amount);
         assert_eq!(taker_amount + Amount::from_sat(85), orig_taker_amount);
     }
@@ -593,15 +593,15 @@ mod tests {
         let orig_maker_amount = dummy_dust_limit - Amount::ONE_SAT;
         let orig_taker_amount = Amount::from_sat(1000);
 
-        let fee = Amount::from_sat(170);
-        let (maker_amount, taker_amount) = subtract_fee(
-            fee,
-            dummy_dust_limit,
-            dummy_dust_limit,
-            orig_maker_amount,
-            orig_taker_amount,
-        )
-        .unwrap();
+        let fee = Fee::new(170.0, 1.0);
+        let (maker_amount, taker_amount) = fee
+            .subtract_fee(
+                dummy_dust_limit,
+                dummy_dust_limit,
+                orig_maker_amount,
+                orig_taker_amount,
+            )
+            .unwrap();
         assert_eq!(maker_amount, Amount::ZERO);
         assert_eq!(
             taker_amount,
@@ -617,15 +617,15 @@ mod tests {
         let orig_maker_amount = Amount::from_sat(1000);
         let orig_taker_amount = dummy_dust_limit - Amount::ONE_SAT;
 
-        let fee = Amount::from_sat(170);
-        let (maker_amount, taker_amount) = subtract_fee(
-            fee,
-            dummy_dust_limit,
-            dummy_dust_limit,
-            orig_maker_amount,
-            orig_taker_amount,
-        )
-        .unwrap();
+        let fee = Fee::new(170.0, 1.0);
+        let (maker_amount, taker_amount) = fee
+            .subtract_fee(
+                dummy_dust_limit,
+                dummy_dust_limit,
+                orig_maker_amount,
+                orig_taker_amount,
+            )
+            .unwrap();
         assert_eq!(
             maker_amount,
             orig_maker_amount - Amount::from_sat(170) + orig_taker_amount
@@ -641,15 +641,15 @@ mod tests {
         let orig_maker_amount = dummy_dust_limit - Amount::ONE_SAT;
         let orig_taker_amount = dummy_dust_limit - Amount::ONE_SAT;
 
-        let fee = Amount::from_sat(170);
-        assert!(subtract_fee(
-            fee,
-            dummy_dust_limit,
-            dummy_dust_limit,
-            orig_maker_amount,
-            orig_taker_amount,
-        )
-        .is_err());
+        let fee = Fee::new(170.0, 1.0);
+        assert!(fee
+            .subtract_fee(
+                dummy_dust_limit,
+                dummy_dust_limit,
+                orig_maker_amount,
+                orig_taker_amount,
+            )
+            .is_err());
     }
 
     #[test]
@@ -660,15 +660,15 @@ mod tests {
         let orig_maker_amount = Amount::ZERO;
         let orig_taker_amount = Amount::ZERO;
 
-        let fee = Amount::from_sat(170);
-        assert!(subtract_fee(
-            fee,
-            dummy_dust_limit,
-            dummy_dust_limit,
-            orig_maker_amount,
-            orig_taker_amount,
-        )
-        .is_err());
+        let fee = Fee::new(170.0, 1.0);
+        assert!(fee
+            .subtract_fee(
+                dummy_dust_limit,
+                dummy_dust_limit,
+                orig_maker_amount,
+                orig_taker_amount,
+            )
+            .is_err());
     }
 
     #[test]

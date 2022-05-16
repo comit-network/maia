@@ -4,8 +4,8 @@ pub use transactions::{close_transaction, punish_transaction};
 use crate::oracle;
 use crate::protocol::sighash_ext::SigHashExt;
 use crate::protocol::transactions::{
-    lock_transaction, subtract_fee, CommitTransaction,
-    ContractExecutionTransaction as ContractExecutionTx, RefundTransaction,
+    lock_transaction, CommitTransaction, ContractExecutionTransaction as ContractExecutionTx, Fee,
+    RefundTransaction,
 };
 use anyhow::{bail, Context, Result};
 use bdk::bitcoin::hashes::hex::ToHex;
@@ -343,7 +343,7 @@ impl PayoutAmounts {
 /// - If one amount is < DUST, it set to 0 and the other output needs to cover for the fee.
 fn update_payout_fee(
     payout_amounts: PayoutAmounts,
-    fee: Amount,
+    fee: Fee,
     dust_limit_maker: Amount,
     dust_limit_taker: Amount,
 ) -> Result<PayoutAmounts> {
@@ -354,8 +354,7 @@ fn update_payout_fee(
         maker_amount,
         taker_amount,
     };
-    let (maker_amount, taker_amount) = subtract_fee(
-        fee,
+    let (maker_amount, taker_amount) = fee.subtract_fee(
         dust_limit_maker,
         dust_limit_taker,
         maker_amount,
@@ -406,24 +405,19 @@ mod tests {
             Amount::from_sat(orig_taker_amount),
         )
         .unwrap();
-        let fee = 100;
+        let fee = Fee::new(100.0, 1.0);
 
         for payout in payouts {
-            let updated_payout = update_payout_fee(
-                payout.into(),
-                Amount::from_sat(fee),
-                dummy_dust_limit,
-                dummy_dust_limit,
-            )
-            .unwrap();
+            let updated_payout =
+                update_payout_fee(payout.into(), fee, dummy_dust_limit, dummy_dust_limit).unwrap();
 
             assert_eq!(
                 updated_payout.maker_amount,
-                Amount::from_sat(orig_maker_amount - fee / 2)
+                Amount::from_sat(orig_maker_amount - fee.as_u64() / 2)
             );
             assert_eq!(
                 updated_payout.taker_amount,
-                Amount::from_sat(orig_taker_amount - fee / 2)
+                Amount::from_sat(orig_taker_amount - fee.as_u64() / 2)
             );
         }
     }
@@ -444,21 +438,16 @@ mod tests {
             Amount::from_sat(orig_taker_amount),
         )
         .unwrap();
-        let fee = 100;
+        let fee = Fee::new(100.0, 1.0);
 
         for payout in payouts {
-            let amounts = update_payout_fee(
-                payout.into(),
-                Amount::from_sat(fee),
-                dummy_dust_limit,
-                dummy_dust_limit,
-            )
-            .unwrap();
+            let amounts =
+                update_payout_fee(payout.into(), fee, dummy_dust_limit, dummy_dust_limit).unwrap();
 
             assert_eq!(amounts.maker_amount, Amount::from_sat(0));
             assert_eq!(
                 amounts.taker_amount,
-                Amount::from_sat(orig_taker_amount - fee + orig_maker_amount)
+                Amount::from_sat(orig_taker_amount - fee.as_u64() + orig_maker_amount)
             );
         }
     }
