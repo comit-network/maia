@@ -23,7 +23,7 @@ pub trait TxBuilderExt {
     fn add_2of2_multisig_recipient(&mut self, amount: Amount) -> &mut Self;
 }
 
-impl<'w, D, CS> TxBuilderExt for TxBuilder<'_, D, CS, CreateTx>
+impl<D, CS> TxBuilderExt for TxBuilder<'_, D, CS, CreateTx>
 where
     D: BatchDatabase,
     CS: CoinSelectionAlgorithm<D>,
