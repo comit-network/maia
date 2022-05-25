@@ -1,13 +1,13 @@
 [package]
 name = "maia"
-version = "0.1.0"
+version = "0.2.0"
 edition = "2021"
 
 [dependencies]
 anyhow = "1"
 bdk = { version = "0.18", default-features = false }
 itertools = "0.10"
-maia-core = { path = "../maia-core" }
+maia-core = { git = "https://github.com/comit-network/maia", rev = "e419cb2cf19bed6ec53eaa3672408a6205a9b705", package = "maia-core" } # Pin the maia-core version to before breaking change
 rand = "0.6"
 secp256k1-zkp = { version = "0.5", features = ["bitcoin_hashes", "global-context", "serde"] }
 thiserror = "1"
