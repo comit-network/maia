@@ -9,14 +9,17 @@ use crate::protocol::transactions::{
 };
 use anyhow::{bail, Context, Result};
 use bdk::bitcoin::hashes::hex::ToHex;
-use bdk::bitcoin::util::bip143::SigHashCache;
 use bdk::bitcoin::util::psbt::PartiallySignedTransaction;
-use bdk::bitcoin::{Address, Amount, PublicKey, SigHashType, Transaction};
+use bdk::bitcoin::util::sighash::SighashCache;
+use bdk::bitcoin::{
+    Address, Amount, EcdsaSig, EcdsaSighashType, PublicKey, Transaction, XOnlyPublicKey,
+};
 use bdk::descriptor::Descriptor;
 use bdk::miniscript::descriptor::Wsh;
 use bdk::miniscript::DescriptorTrait;
 use itertools::Itertools;
-use secp256k1_zkp::{self, schnorrsig, SecretKey, Signature, SECP256K1};
+use secp256k1_zkp::ecdsa::Signature;
+use secp256k1_zkp::{self, SecretKey, SECP256K1};
 use std::collections::HashMap;
 use std::iter::FromIterator;
 use std::num::NonZeroU8;
@@ -45,7 +48,7 @@ mod txin_ext;
 pub fn create_cfd_transactions(
     (maker, maker_punish_params): (PartyParams, PunishParams),
     (taker, taker_punish_params): (PartyParams, PunishParams),
-    oracle_pk: schnorrsig::PublicKey,
+    oracle_pk: XOnlyPublicKey,
     (cet_timelock, refund_timelock): (u32, u32),
     payouts_per_event: HashMap<Announcement, Vec<Payout>>,
     identity_sk: SecretKey,
@@ -96,7 +99,7 @@ pub fn renew_cfd_transactions(
         Address,
         PunishParams,
     ),
-    oracle_pk: schnorrsig::PublicKey,
+    oracle_pk: XOnlyPublicKey,
     (cet_timelock, refund_timelock): (u32, u32),
     payouts_per_event: HashMap<Announcement, Vec<Payout>>,
     identity_sk: SecretKey,
@@ -139,14 +142,14 @@ fn build_cfds(
         Address,
         PunishParams,
     ),
-    oracle_pk: schnorrsig::PublicKey,
+    oracle_pk: XOnlyPublicKey,
     (cet_timelock, refund_timelock): (u32, u32),
     payouts_per_event: HashMap<Announcement, Vec<Payout>>,
     identity_sk: SecretKey,
     commit_tx_fee_rate: u32,
 ) -> Result<CfdTransactions> {
     let commit_tx = CommitTransaction::new(
-        &lock_tx.global.unsigned_tx,
+        &lock_tx.unsigned_tx,
         (
             maker_pk,
             maker_punish_params.revocation_pk,
@@ -162,29 +165,27 @@ fn build_cfds(
     .context("cannot build commit tx")?;
 
     let identity_pk = secp256k1_zkp::PublicKey::from_secret_key(SECP256K1, &identity_sk);
-    let commit_encsig = if identity_pk == maker_pk.key {
+    let commit_encsig = if identity_pk == maker_pk.inner {
         commit_tx.encsign(identity_sk, &taker_punish_params.publish_pk)
-    } else if identity_pk == taker_pk.key {
+    } else if identity_pk == taker_pk.inner {
         commit_tx.encsign(identity_sk, &maker_punish_params.publish_pk)
     } else {
         bail!("identity sk does not belong to taker or maker")
     };
 
-    let refund = {
-        let tx = RefundTransaction::new(
-            &commit_tx,
-            refund_timelock,
-            &maker_address,
-            &taker_address,
-            maker_lock_amount,
-            taker_lock_amount,
-        );
+    let tx = RefundTransaction::new(
+        &commit_tx,
+        refund_timelock,
+        &maker_address,
+        &taker_address,
+        maker_lock_amount,
+        taker_lock_amount,
+    )?;
 
-        let sighash = tx.sighash().to_message();
-        let sig = SECP256K1.sign(&sighash, &identity_sk);
+    let sighash = tx.sighash().to_message();
+    let sig = SECP256K1.sign_ecdsa(&sighash, &identity_sk);
 
-        (tx.into_inner(), sig)
-    };
+    let refund = (tx.into_inner(), sig);
 
     let cets = payouts_per_event
         .into_iter()
@@ -223,8 +224,8 @@ fn build_cfds(
 pub fn lock_descriptor(maker_pk: PublicKey, taker_pk: PublicKey) -> Descriptor<PublicKey> {
     const MINISCRIPT_TEMPLATE: &str = "c:and_v(v:pk(A),pk_k(B))";
 
-    let maker_pk = ToHex::to_hex(&maker_pk.key);
-    let taker_pk = ToHex::to_hex(&taker_pk.key);
+    let maker_pk = ToHex::to_hex(&maker_pk.inner);
+    let taker_pk = ToHex::to_hex(&taker_pk.inner);
 
     let miniscript = MINISCRIPT_TEMPLATE
         .replace('A', &maker_pk)
@@ -240,12 +241,12 @@ pub fn commit_descriptor(
     (taker_own_pk, taker_rev_pk, taker_publish_pk): (PublicKey, PublicKey, PublicKey),
 ) -> Descriptor<PublicKey> {
     let maker_own_pk_hash = maker_own_pk.pubkey_hash().as_hash();
-    let maker_own_pk = maker_own_pk.key.serialize().to_hex();
+    let maker_own_pk = maker_own_pk.inner.serialize().to_hex();
     let maker_publish_pk_hash = maker_publish_pk.pubkey_hash().as_hash();
     let maker_rev_pk_hash = maker_rev_pk.pubkey_hash().as_hash();
 
     let taker_own_pk_hash = taker_own_pk.pubkey_hash().as_hash();
-    let taker_own_pk = taker_own_pk.key.serialize().to_hex();
+    let taker_own_pk = taker_own_pk.inner.serialize().to_hex();
     let taker_publish_pk_hash = taker_publish_pk.pubkey_hash().as_hash();
     let taker_rev_pk_hash = taker_rev_pk.pubkey_hash().as_hash();
 
@@ -270,14 +271,14 @@ pub fn spending_tx_sighash(
     spending_tx: &Transaction,
     spent_descriptor: &Descriptor<PublicKey>,
     spent_amount: Amount,
-) -> secp256k1_zkp::Message {
-    let sighash = SigHashCache::new(spending_tx).signature_hash(
+) -> Result<secp256k1_zkp::Message> {
+    let sighash = SighashCache::new(spending_tx).segwit_signature_hash(
         0,
-        &spent_descriptor.script_code(),
+        &spent_descriptor.script_code()?,
         spent_amount.as_sat(),
-        SigHashType::All,
-    );
-    sighash.to_message()
+        EcdsaSighashType::All,
+    )?;
+    Ok(sighash.to_message())
 }
 
 pub fn finalize_spend_transaction(
@@ -287,8 +288,20 @@ pub fn finalize_spend_transaction(
     (pk_1, sig_1): (PublicKey, Signature),
 ) -> Result<Transaction> {
     let satisfier = HashMap::from_iter(vec![
-        (pk_0, (sig_0, SigHashType::All)),
-        (pk_1, (sig_1, SigHashType::All)),
+        (
+            pk_0,
+            EcdsaSig {
+                sig: sig_0,
+                hash_ty: EcdsaSighashType::All,
+            },
+        ),
+        (
+            pk_1,
+            EcdsaSig {
+                sig: sig_1,
+                hash_ty: EcdsaSighashType::All,
+            },
+        ),
     ]);
 
     let input = tx
@@ -302,8 +315,8 @@ pub fn finalize_spend_transaction(
 }
 
 pub fn compute_adaptor_pk(
-    oracle_pk: &schnorrsig::PublicKey,
-    index_nonce_pairs: &[(NonZeroU8, schnorrsig::PublicKey)],
+    oracle_pk: &XOnlyPublicKey,
+    index_nonce_pairs: &[(NonZeroU8, XOnlyPublicKey)],
 ) -> Result<secp256k1_zkp::PublicKey> {
     let attestation_pks = index_nonce_pairs
         .iter()

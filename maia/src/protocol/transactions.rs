@@ -2,16 +2,17 @@ use crate::protocol::sighash_ext::SigHashExt;
 use crate::protocol::txin_ext::TxInExt;
 use crate::protocol::{commit_descriptor, compute_adaptor_pk, lock_descriptor};
 use anyhow::{bail, Context, Result};
-use bdk::bitcoin::util::bip143::SigHashCache;
-use bdk::bitcoin::util::psbt::{Global, PartiallySignedTransaction};
+use bdk::bitcoin::util::psbt::PartiallySignedTransaction;
+use bdk::bitcoin::util::sighash::SighashCache;
 use bdk::bitcoin::{
-    Address, Amount, OutPoint, PublicKey, SigHash, SigHashType, Transaction, TxIn, TxOut,
+    Address, Amount, EcdsaSig, EcdsaSighashType, OutPoint, PublicKey, Sighash, Transaction, TxIn,
+    TxOut, XOnlyPublicKey,
 };
 use bdk::descriptor::Descriptor;
 use bdk::miniscript::DescriptorTrait;
 use itertools::Itertools;
 use maia_core::{Payout, TransactionExt, DUMMY_2OF2_MULTISIG};
-use secp256k1_zkp::{self, schnorrsig, EcdsaAdaptorSignature, SecretKey, SECP256K1};
+use secp256k1_zkp::{self, EcdsaAdaptorSignature, SecretKey, SECP256K1};
 use std::collections::HashMap;
 use std::iter::FromIterator;
 use std::num::NonZeroU8;
@@ -29,7 +30,6 @@ pub(crate) fn lock_transaction(
     let lock_descriptor = lock_descriptor(maker_pk, taker_pk);
 
     let maker_change = maker_psbt
-        .global
         .unsigned_tx
         .output
         .into_iter()
@@ -39,7 +39,6 @@ pub(crate) fn lock_transaction(
         .collect::<Vec<_>>();
 
     let taker_change = taker_psbt
-        .global
         .unsigned_tx
         .output
         .into_iter()
@@ -53,11 +52,7 @@ pub(crate) fn lock_transaction(
         script_pubkey: lock_descriptor.script_pubkey(),
     };
 
-    let input = vec![
-        maker_psbt.global.unsigned_tx.input,
-        taker_psbt.global.unsigned_tx.input,
-    ]
-    .concat();
+    let input = vec![maker_psbt.unsigned_tx.input, taker_psbt.unsigned_tx.input].concat();
 
     let output = std::iter::once(lock_output)
         .chain(maker_change)
@@ -72,9 +67,13 @@ pub(crate) fn lock_transaction(
     };
 
     PartiallySignedTransaction {
-        global: Global::from_unsigned_tx(lock_tx).expect("to be unsigned"),
+        unsigned_tx: lock_tx,
+        version: 0,
+        xpub: Default::default(),
+        proprietary: Default::default(),
         inputs: vec![maker_psbt.inputs, taker_psbt.inputs].concat(),
         outputs: vec![maker_psbt.outputs, taker_psbt.outputs].concat(),
+        unknown: Default::default(),
     }
 }
 
@@ -83,7 +82,7 @@ pub(crate) struct CommitTransaction {
     inner: Transaction,
     descriptor: Descriptor<PublicKey>,
     amount: Amount,
-    sighash: SigHash,
+    sighash: Sighash,
     fee: Fee,
 }
 
@@ -134,12 +133,12 @@ impl CommitTransaction {
         let commit_tx_amount = lock_amount - fee.as_u64();
         inner.output[0].value = commit_tx_amount;
 
-        let sighash = SigHashCache::new(&inner).signature_hash(
+        let sighash = SighashCache::new(&inner).segwit_signature_hash(
             0,
-            &lock_descriptor.script_code(),
+            &lock_descriptor.script_code()?,
             lock_amount,
-            SigHashType::All,
-        );
+            EcdsaSighashType::All,
+        )?;
 
         Ok(Self {
             inner,
@@ -159,7 +158,7 @@ impl CommitTransaction {
             SECP256K1,
             &self.sighash.to_message(),
             &sk,
-            &publish_them_pk.key,
+            &publish_them_pk.inner,
         )
     }
 
@@ -189,8 +188,8 @@ impl CommitTransaction {
 #[derive(Debug, Clone)]
 pub(crate) struct ContractExecutionTransaction {
     inner: Transaction,
-    index_nonce_pairs: Vec<(NonZeroU8, schnorrsig::PublicKey)>,
-    sighash: SigHash,
+    index_nonce_pairs: Vec<(NonZeroU8, XOnlyPublicKey)>,
+    sighash: Sighash,
 }
 
 impl ContractExecutionTransaction {
@@ -203,7 +202,7 @@ impl ContractExecutionTransaction {
         payout: Payout,
         maker_address: &Address,
         taker_address: &Address,
-        nonce_pks: &[schnorrsig::PublicKey],
+        nonce_pks: &[XOnlyPublicKey],
         relative_timelock_in_blocks: u32,
     ) -> Result<Self> {
         let index_nonce_pairs: Vec<_> = payout
@@ -235,12 +234,12 @@ impl ContractExecutionTransaction {
             output,
         };
 
-        let sighash = SigHashCache::new(&tx).signature_hash(
+        let sighash = SighashCache::new(&tx).segwit_signature_hash(
             0,
-            &commit_tx.descriptor.script_code(),
+            &commit_tx.descriptor.script_code()?,
             commit_tx.amount.as_sat(),
-            SigHashType::All,
-        );
+            EcdsaSighashType::All,
+        )?;
 
         Ok(Self {
             inner: tx,
@@ -252,7 +251,7 @@ impl ContractExecutionTransaction {
     pub(crate) fn encsign(
         &self,
         sk: SecretKey,
-        oracle_pk: &schnorrsig::PublicKey,
+        oracle_pk: &XOnlyPublicKey,
     ) -> Result<EcdsaAdaptorSignature> {
         let adaptor_point = compute_adaptor_pk(oracle_pk, &self.index_nonce_pairs)?;
 
@@ -272,7 +271,7 @@ impl ContractExecutionTransaction {
 #[derive(Debug, Clone)]
 pub(crate) struct RefundTransaction {
     inner: Transaction,
-    sighash: SigHash,
+    sighash: Sighash,
 }
 
 impl RefundTransaction {
@@ -287,7 +286,7 @@ impl RefundTransaction {
         taker_address: &Address,
         maker_amount: Amount,
         taker_amount: Amount,
-    ) -> Self {
+    ) -> Result<Self> {
         let commit_input = TxIn {
             previous_output: commit_tx.outpoint(),
             sequence: relative_locktime_in_blocks,
@@ -316,17 +315,17 @@ impl RefundTransaction {
         tx.output[0].value -= (fee / 2.0) as u64;
         tx.output[1].value -= (fee / 2.0) as u64;
 
-        let sighash = SigHashCache::new(&tx).signature_hash(
+        let sighash = SighashCache::new(&tx).segwit_signature_hash(
             0,
-            &commit_tx.descriptor().script_code(),
+            &commit_tx.descriptor().script_code()?,
             commit_tx.amount().as_sat(),
-            SigHashType::All,
-        );
+            EcdsaSighashType::All,
+        )?;
 
-        Self { inner: tx, sighash }
+        Ok(Self { inner: tx, sighash })
     }
 
-    pub(crate) fn sighash(&self) -> SigHash {
+    pub(crate) fn sighash(&self) -> Sighash {
         self.sighash
     }
 
@@ -397,13 +396,9 @@ pub fn close_transaction(
         output,
     };
 
-    let sighash = SigHashCache::new(&tx)
-        .signature_hash(
-            0,
-            &lock_descriptor.script_code(),
-            lock_amount.as_sat(),
-            SigHashType::All,
-        )
+    let script_code = lock_descriptor.script_code()?;
+    let sighash = SighashCache::new(&tx)
+        .segwit_signature_hash(0, &script_code, lock_amount.as_sat(), EcdsaSighashType::All)?
         .to_message();
 
     Ok((tx, sighash))
@@ -430,7 +425,7 @@ pub fn punish_transaction(
         .context("commit transaction inputs != 1")?;
 
     let publish_them_sk = input
-        .find_map_signature(|sig| encsig.recover(SECP256K1, &sig, &pub_them_pk.key).ok())
+        .find_map_signature(|sig| encsig.recover(SECP256K1, &sig, &pub_them_pk.inner).ok())
         .context("could not recover publish sk from commit tx")?;
 
     let commit_outpoint = revoked_commit_tx
@@ -459,42 +454,67 @@ pub fn punish_transaction(
         tx
     };
 
-    let sighash = SigHashCache::new(&punish_tx).signature_hash(
+    let sighash = SighashCache::new(&punish_tx).segwit_signature_hash(
         0,
-        &commit_descriptor.script_code(),
+        &commit_descriptor.script_code()?,
         commit_amount,
-        SigHashType::All,
-    );
+        EcdsaSighashType::All,
+    )?;
 
     let satisfier = {
         let pk = {
-            let key = secp256k1_zkp::PublicKey::from_secret_key(SECP256K1, &sk);
+            let inner = secp256k1_zkp::PublicKey::from_secret_key(SECP256K1, &sk);
             PublicKey {
                 compressed: true,
-                key,
+                inner,
             }
         };
         let pk_hash = pk.pubkey_hash().as_hash();
-        let sig_sk = SECP256K1.sign(&sighash.to_message(), &sk);
+        let sig_sk = SECP256K1.sign_ecdsa(&sighash.to_message(), &sk);
 
         let pub_them_pk_hash = pub_them_pk.pubkey_hash().as_hash();
-        let sig_pub_them = SECP256K1.sign(&sighash.to_message(), &publish_them_sk);
+        let sig_pub_them = SECP256K1.sign_ecdsa(&sighash.to_message(), &publish_them_sk);
 
         let rev_them_pk = {
-            let key = secp256k1_zkp::PublicKey::from_secret_key(SECP256K1, &revocation_them_sk);
+            let inner = secp256k1_zkp::PublicKey::from_secret_key(SECP256K1, &revocation_them_sk);
             PublicKey {
                 compressed: true,
-                key,
+                inner,
             }
         };
         let rev_them_pk_hash = rev_them_pk.pubkey_hash().as_hash();
-        let sig_rev_them = SECP256K1.sign(&sighash.to_message(), &revocation_them_sk);
-
-        let sighash_all = SigHashType::All;
+        let sig_rev_them = SECP256K1.sign_ecdsa(&sighash.to_message(), &revocation_them_sk);
         HashMap::from_iter(vec![
-            (pk_hash, (pk, (sig_sk, sighash_all))),
-            (pub_them_pk_hash, (pub_them_pk, (sig_pub_them, sighash_all))),
-            (rev_them_pk_hash, (rev_them_pk, (sig_rev_them, sighash_all))),
+            (
+                pk_hash,
+                (
+                    pk,
+                    EcdsaSig {
+                        sig: sig_sk,
+                        hash_ty: EcdsaSighashType::All,
+                    },
+                ),
+            ),
+            (
+                pub_them_pk_hash,
+                (
+                    pub_them_pk,
+                    EcdsaSig {
+                        sig: sig_pub_them,
+                        hash_ty: EcdsaSighashType::All,
+                    },
+                ),
+            ),
+            (
+                rev_them_pk_hash,
+                (
+                    rev_them_pk,
+                    EcdsaSig {
+                        sig: sig_rev_them,
+                        hash_ty: EcdsaSighashType::All,
+                    },
+                ),
+            ),
         ])
     };
 
