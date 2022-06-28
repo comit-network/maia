@@ -8,7 +8,7 @@ pub trait TransactionExt {
 
 impl TransactionExt for Transaction {
     fn get_virtual_size(&self) -> f64 {
-        self.get_weight() as f64 / 4.0
+        self.weight() as f64 / 4.0
     }
 
     fn outpoint(&self, script_pubkey: &Script) -> Result<OutPoint> {

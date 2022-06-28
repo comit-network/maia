@@ -42,9 +42,9 @@ dependencies = [
 
 [[package]]
 name = "bdk"
-version = "0.18.0"
+version = "0.19.0"
 source = "registry+https://github.com/rust-lang/crates.io-index"
-checksum = "bdfb4ab7649b7ee7e170ea6dc3b7a3fc5d97671600fe40f6ffde3abe52ef4ae5"
+checksum = "ec2c4c49915b82a2576bc7dee83d2f274387904b79305e6ae8b622daa0b282c1"
 dependencies = [
  "async-trait",
  "bdk-macros",
@@ -83,23 +83,17 @@ checksum = "349f9b6a179ed607305526ca489b34ad0a41aed5f7980fa90eb03160b69598fb"
 
 [[package]]
 name = "bitcoin"
-version = "0.27.1"
+version = "0.28.1"
 source = "registry+https://github.com/rust-lang/crates.io-index"
-checksum = "9a41df6ad9642c5c15ae312dd3d074de38fd3eb7cc87ad4ce10f90292a83fe4d"
+checksum = "05bba324e6baf655b882df672453dbbc527bc938cadd27750ae510aaccc3a66a"
 dependencies = [
  "base64-compat",
  "bech32",
- "bitcoin_hashes 0.10.0",
+ "bitcoin_hashes",
  "bitcoinconsensus",
  "secp256k1",
  "serde",
 ]
-
-[[package]]
-name = "bitcoin_hashes"
-version = "0.9.7"
-source = "registry+https://github.com/rust-lang/crates.io-index"
-checksum = "7ce18265ec2324ad075345d5814fbeed4f41f0a660055dc78840b74d19b874b1"
 
 [[package]]
 name = "bitcoin_hashes"
@@ -248,7 +242,7 @@ dependencies = [
  "bdk",
  "bitcoin",
  "itertools",
- "maia-core 0.1.0 (git+https://github.com/comit-network/maia?rev=e419cb2cf19bed6ec53eaa3672408a6205a9b705)",
+ "maia-core 0.1.0 (git+https://github.com/comit-network/maia?tag=0.1.1)",
  "proptest",
  "rand 0.6.5",
  "secp256k1-zkp",
@@ -271,7 +265,7 @@ dependencies = [
 [[package]]
 name = "maia-core"
 version = "0.1.0"
-source = "git+https://github.com/comit-network/maia?rev=e419cb2cf19bed6ec53eaa3672408a6205a9b705#e419cb2cf19bed6ec53eaa3672408a6205a9b705"
+source = "git+https://github.com/comit-network/maia?tag=0.1.1#a577add9818a8ada012e0d4dc605c6cca585db0d"
 dependencies = [
  "anyhow",
  "bdk",
@@ -282,9 +276,9 @@ dependencies = [
 
 [[package]]
 name = "miniscript"
-version = "6.1.0"
+version = "7.0.0"
 source = "registry+https://github.com/rust-lang/crates.io-index"
-checksum = "1e292b58407dfbf1384e5aca8428d3b0f2eaa09d24cb17088f6db0b7ca31194a"
+checksum = "da39fc7a8adea97a677337b0091779dd86349226b869053af496584a9b9e5847"
 dependencies = [
  "bitcoin",
  "serde",
@@ -561,11 +555,11 @@ checksum = "73b4b750c782965c211b42f022f59af1fbceabdd026623714f104152f1ec149f"
 
 [[package]]
 name = "secp256k1"
-version = "0.20.3"
+version = "0.22.1"
 source = "registry+https://github.com/rust-lang/crates.io-index"
-checksum = "97d03ceae636d0fed5bae6a7f4f664354c5f4fcedf6eef053fef17e49f837d0a"
+checksum = "26947345339603ae8395f68e2f3d85a6b0a8ddfe6315818e80b8504415099db0"
 dependencies = [
- "bitcoin_hashes 0.9.7",
+ "bitcoin_hashes",
  "rand 0.6.5",
  "secp256k1-sys",
  "serde",
@@ -573,18 +567,18 @@ dependencies = [
 
 [[package]]
 name = "secp256k1-sys"
-version = "0.4.1"
+version = "0.5.2"
 source = "registry+https://github.com/rust-lang/crates.io-index"
-checksum = "827cb7cce42533829c792fc51b82fbf18b125b45a702ef2c8be77fce65463a7b"
+checksum = "152e20a0fd0519390fc43ab404663af8a0b794273d2a91d60ad4a39f13ffe110"
 dependencies = [
  "cc",
 ]
 
 [[package]]
 name = "secp256k1-zkp"
-version = "0.5.0"
+version = "0.6.0"
 source = "registry+https://github.com/rust-lang/crates.io-index"
-checksum = "72e2709b09561dfb584b366bd418ee5549a858873baa707ed83d3eb986e34abf"
+checksum = "c724fda6aae465ed9a39320202bc6164e0adb3cdf9bc16d5af4be7eebaba75e5"
 dependencies = [
  "rand 0.6.5",
  "secp256k1",
@@ -594,9 +588,9 @@ dependencies = [
 
 [[package]]
 name = "secp256k1-zkp-sys"
-version = "0.5.0"
+version = "0.6.0"
 source = "registry+https://github.com/rust-lang/crates.io-index"
-checksum = "90c48e70d04fdd871498db6ac3b35eeae0a339ab1cd06af483fe8a6835d36def"
+checksum = "e6f880412a627e79d3ce17355150ea1e0e76570efb7f0f70df51504cbe2582e3"
 dependencies = [
  "cc",
  "secp256k1-sys",
