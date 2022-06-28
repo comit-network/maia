@@ -1,5 +1,5 @@
-use bdk::bitcoin::secp256k1::Signature;
 use bdk::bitcoin::TxIn;
+use secp256k1_zkp::ecdsa::Signature;
 
 pub(crate) trait TxInExt {
     fn find_map_signature<F, R>(&self, f: F) -> Option<R>
@@ -14,10 +14,7 @@ impl TxInExt for TxIn {
     {
         self.witness
             .iter()
-            .filter_map(|elem| {
-                let elem = elem.as_slice();
-                Signature::from_der(&elem[..elem.len() - 1]).ok()
-            })
+            .filter_map(|elem| Signature::from_der(&elem[..elem.len() - 1]).ok())
             .find_map(f)
     }
 }

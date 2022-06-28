@@ -1,14 +1,13 @@
 pub use secp256k1_zkp::*;
 
 use anyhow::Result;
-use secp256k1_zkp::schnorrsig;
 use std::num::NonZeroU8;
 
 /// Compute an attestation public key for the given oracle public key,
 /// announcement nonce public key and outcome index.
 pub fn attestation_pk(
-    oracle_pk: &schnorrsig::PublicKey,
-    nonce_pk: &schnorrsig::PublicKey,
+    oracle_pk: &XOnlyPublicKey,
+    nonce_pk: &XOnlyPublicKey,
     index: NonZeroU8,
 ) -> Result<secp256k1_zkp::PublicKey> {
     let nonce_pk = schnorr_pubkey_to_pubkey(nonce_pk);
@@ -22,7 +21,7 @@ pub fn attestation_pk(
     Ok(attestation_pk)
 }
 
-fn schnorr_pubkey_to_pubkey(pk: &schnorrsig::PublicKey) -> secp256k1_zkp::PublicKey {
+fn schnorr_pubkey_to_pubkey(pk: &XOnlyPublicKey) -> secp256k1_zkp::PublicKey {
     let mut buf = Vec::<u8>::with_capacity(33);
 
     buf.push(0x02); // append even byte

@@ -10,8 +10,9 @@ pub use transaction_ext::TransactionExt;
 mod transaction_ext;
 
 use bdk::bitcoin::util::psbt::PartiallySignedTransaction;
-use bdk::bitcoin::{Address, Amount, PublicKey, Transaction};
-use secp256k1_zkp::{schnorrsig, EcdsaAdaptorSignature, Signature};
+use bdk::bitcoin::{Address, Amount, PublicKey, Transaction, XOnlyPublicKey};
+use secp256k1_zkp::ecdsa::Signature;
+use secp256k1_zkp::EcdsaAdaptorSignature;
 
 use crate::interval;
 
@@ -75,7 +76,7 @@ pub struct Cets {
 #[derive(Debug, Clone, Eq)]
 pub struct Announcement {
     pub id: String,
-    pub nonce_pks: Vec<schnorrsig::PublicKey>,
+    pub nonce_pks: Vec<XOnlyPublicKey>,
 }
 
 impl std::hash::Hash for Announcement {
