@@ -242,7 +242,7 @@ dependencies = [
  "bdk",
  "bitcoin",
  "itertools",
- "maia-core 0.1.0 (git+https://github.com/comit-network/maia?tag=0.1.1)",
+ "maia-core 0.1.1 (git+https://github.com/comit-network/maia?tag=0.1.1)",
  "proptest",
  "rand 0.6.5",
  "secp256k1-zkp",
@@ -251,7 +251,7 @@ dependencies = [
 
 [[package]]
 name = "maia-core"
-version = "0.1.0"
+version = "0.1.1"
 dependencies = [
  "anyhow",
  "bdk",
@@ -264,8 +264,8 @@ dependencies = [
 
 [[package]]
 name = "maia-core"
-version = "0.1.0"
-source = "git+https://github.com/comit-network/maia?tag=0.1.1#a577add9818a8ada012e0d4dc605c6cca585db0d"
+version = "0.1.1"
+source = "git+https://github.com/comit-network/maia?tag=0.1.1#e1354e9c0397326a99bb5068e3afbc8cf2e07a9d"
 dependencies = [
  "anyhow",
  "bdk",
