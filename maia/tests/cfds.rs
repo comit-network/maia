@@ -1,6 +1,6 @@
 use anyhow::{bail, Context, Result};
 use bdk::bitcoin::util::bip32::ExtendedPrivKey;
-use bdk::bitcoin::{Address, Amount, Network, PrivateKey, PublicKey, Transaction};
+use bdk::bitcoin::{Address, Amount, Network, PrivateKey, PublicKey, Transaction, XOnlyPublicKey};
 use bdk::descriptor::Descriptor;
 use bdk::miniscript::DescriptorTrait;
 use bdk::wallet::AddressIndex;
@@ -16,7 +16,8 @@ use maia_core::{
     PunishParams, TransactionExt, TxBuilderExt,
 };
 use rand::{thread_rng, CryptoRng, RngCore};
-use secp256k1_zkp::{schnorrsig, EcdsaAdaptorSignature, SecretKey, Signature, SECP256K1};
+use secp256k1_zkp::ecdsa::Signature;
+use secp256k1_zkp::{EcdsaAdaptorSignature, SecretKey, SECP256K1};
 use std::collections::HashMap;
 use std::iter::FromIterator;
 use std::str::FromStr;
@@ -359,8 +360,8 @@ fn collaboratively_close_cfd() {
     )
     .expect("to build close tx");
 
-    let sig_maker = SECP256K1.sign(&close_sighash, &maker.sk);
-    let sig_taker = SECP256K1.sign(&close_sighash, &taker.sk);
+    let sig_maker = SECP256K1.sign_ecdsa(&close_sighash, &maker.sk);
+    let sig_taker = SECP256K1.sign_ecdsa(&close_sighash, &taker.sk);
     let signed_close_tx = finalize_spend_transaction(
         close_tx,
         &lock_desc,
@@ -376,7 +377,7 @@ fn create_cfd_txs(
     rng: &mut (impl RngCore + CryptoRng),
     (maker_wallet, maker_lock_amount): (&bdk::Wallet<bdk::database::MemoryDatabase>, Amount),
     (taker_wallet, taker_lock_amount): (&bdk::Wallet<bdk::database::MemoryDatabase>, Amount),
-    oracle_pk: schnorrsig::PublicKey,
+    oracle_pk: XOnlyPublicKey,
     payouts_per_event: HashMap<Announcement, Vec<Payout>>,
     (cet_timelock, refund_timelock): (u32, u32),
 ) -> (
@@ -508,7 +509,7 @@ struct CfdKeys {
 fn verify_cfd_sigs(
     (maker_cfd_txs, maker_pk, maker_publish_pk): (&CfdTransactions, PublicKey, PublicKey),
     (taker_cfd_txs, taker_pk, taker_publish_pk): (&CfdTransactions, PublicKey, PublicKey),
-    (oracle_pk, events): (schnorrsig::PublicKey, Vec<Announcement>),
+    (oracle_pk, events): (XOnlyPublicKey, Vec<Announcement>),
     (lock_desc, lock_amount): (&Descriptor<PublicKey>, Amount),
     (commit_desc, commit_amount): (&Descriptor<PublicKey>, Amount),
 ) {
@@ -517,7 +518,7 @@ fn verify_cfd_sigs(
         &maker_cfd_txs.refund.1,
         commit_desc,
         commit_amount,
-        &maker_pk.key,
+        &maker_pk.inner,
     )
     .expect("valid maker refund sig");
     verify_spend(
@@ -525,7 +526,7 @@ fn verify_cfd_sigs(
         &taker_cfd_txs.refund.1,
         commit_desc,
         commit_amount,
-        &taker_pk.key,
+        &taker_pk.inner,
     )
     .expect("valid taker refund sig");
 
@@ -549,7 +550,7 @@ fn verify_cfd_sigs(
                             tx,
                             maker_encsig,
                             digits,
-                            &maker_pk.key,
+                            &maker_pk.inner,
                             (oracle_pk, event.nonce_pks.as_slice()),
                             commit_desc,
                             commit_amount,
@@ -580,7 +581,7 @@ fn verify_cfd_sigs(
                             tx,
                             taker_encsig,
                             digits,
-                            &taker_pk.key,
+                            &taker_pk.inner,
                             (oracle_pk, event.nonce_pks.as_slice()),
                             commit_desc,
                             commit_amount,
@@ -596,8 +597,8 @@ fn verify_cfd_sigs(
         &maker_cfd_txs.commit.1,
         lock_desc,
         lock_amount,
-        &taker_publish_pk.key,
-        &maker_pk.key,
+        &taker_publish_pk.inner,
+        &maker_pk.inner,
     )
     .expect("valid maker commit encsig");
     encverify_spend(
@@ -605,8 +606,8 @@ fn verify_cfd_sigs(
         &taker_cfd_txs.commit.1,
         lock_desc,
         lock_amount,
-        &maker_publish_pk.key,
-        &taker_pk.key,
+        &maker_publish_pk.inner,
+        &taker_pk.inner,
     )
     .expect("valid taker commit encsig");
 }
@@ -848,7 +849,7 @@ fn check_tx(
     check_tx_fee(&[spent_tx], spend_tx)?;
     spent_descriptor.script_pubkey().verify(
         0,
-        spent_amount,
+        Amount::from_sat(spent_amount),
         bitcoin::consensus::serialize(spend_tx).as_slice(),
     )?;
 
@@ -864,15 +865,15 @@ fn decrypt_and_sign(
     spent_descriptor: &Descriptor<PublicKey>,
     spent_amount: Amount,
 ) -> Result<Transaction> {
-    let sighash = spending_tx_sighash(&spend_tx, spent_descriptor, spent_amount);
+    let sighash = spending_tx_sighash(&spend_tx, spent_descriptor, spent_amount)?;
 
-    let sig_self = SECP256K1.sign(&sighash, sk);
+    let sig_self = SECP256K1.sign_ecdsa(&sighash, sk);
 
     encsig_other
         .verify(
             SECP256K1,
             &sighash,
-            &pk_other.key,
+            &pk_other.inner,
             &secp256k1_zkp::PublicKey::from_secret_key(SECP256K1, decryption_sk),
         )
         .expect("wrong decryption key");
@@ -922,9 +923,9 @@ fn verify_spend(
     spent_amount: Amount,
     pk: &secp256k1_zkp::PublicKey,
 ) -> Result<()> {
-    let sighash = spending_tx_sighash(tx, spent_descriptor, spent_amount);
+    let sighash = spending_tx_sighash(tx, spent_descriptor, spent_amount)?;
     SECP256K1
-        .verify(&sighash, sig, pk)
+        .verify_ecdsa(&sighash, sig, pk)
         .context("failed to verify sig on spend tx")
 }
 
@@ -933,7 +934,7 @@ fn verify_cet_encsig(
     encsig: &EcdsaAdaptorSignature,
     digits: &interval::Digits,
     pk: &secp256k1_zkp::PublicKey,
-    (oracle_pk, nonce_pks): (schnorrsig::PublicKey, &[schnorrsig::PublicKey]),
+    (oracle_pk, nonce_pks): (XOnlyPublicKey, &[XOnlyPublicKey]),
     spent_descriptor: &Descriptor<PublicKey>,
     spent_amount: Amount,
 ) -> Result<()> {
@@ -963,7 +964,7 @@ fn encverify_spend(
     encryption_point: &secp256k1_zkp::PublicKey,
     pk: &secp256k1_zkp::PublicKey,
 ) -> Result<()> {
-    let sighash = spending_tx_sighash(tx, spent_descriptor, spent_amount);
+    let sighash = spending_tx_sighash(tx, spent_descriptor, spent_amount)?;
     encsig
         .verify(SECP256K1, &sighash, pk, encryption_point)
         .context("failed to verify encsig spend tx")
@@ -1041,7 +1042,7 @@ fn make_keypair(rng: &mut (impl RngCore + CryptoRng)) -> (SecretKey, PublicKey) 
         &PrivateKey {
             compressed: true,
             network: Network::Regtest,
-            key: sk,
+            inner: sk,
         },
     );
 
@@ -1050,8 +1051,8 @@ fn make_keypair(rng: &mut (impl RngCore + CryptoRng)) -> (SecretKey, PublicKey) 
 
 struct OliviaData {
     id: String,
-    pk: schnorrsig::PublicKey,
-    nonce_pks: Vec<schnorrsig::PublicKey>,
+    pk: XOnlyPublicKey,
+    nonce_pks: Vec<XOnlyPublicKey>,
     price: u64,
     attestations: Vec<SecretKey>,
 }
@@ -1078,13 +1079,13 @@ impl OliviaData {
     /// Generate an example of all the data from `olivia` needed to test the
     /// CFD protocol end-to-end.
     fn example(id: &str, price: u64, nonce_pks: &[&str], attestations: &[&str]) -> Self {
-        let oracle_pk = schnorrsig::PublicKey::from_str(Self::OLIVIA_PK).unwrap();
+        let oracle_pk = XOnlyPublicKey::from_str(Self::OLIVIA_PK).unwrap();
 
         let id = id.to_string();
 
         let nonce_pks = nonce_pks
             .iter()
-            .map(|pk| schnorrsig::PublicKey::from_str(pk).unwrap())
+            .map(|pk| XOnlyPublicKey::from_str(pk).unwrap())
             .collect();
 
         let attestations = attestations
