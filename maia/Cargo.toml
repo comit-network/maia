@@ -5,9 +5,9 @@ edition = "2021"
 
 [dependencies]
 anyhow = "1"
-bdk = { version = "0.19", default-features = false }
+bdk = { version = "0.20", default-features = false }
 itertools = "0.10"
-maia-core = { git = "https://github.com/comit-network/maia", tag = "0.1.1", package = "maia-core" } # Pin the maia-core version to latest v0.1 for backwards compatibility downstream
+maia-core = { git = "https://github.com/comit-network/maia", tag = "0.1.2", package = "maia-core" } # Pin the maia-core version to latest v0.1 for backwards compatibility downstream
 rand = "0.6"
 secp256k1-zkp = { version = "0.6", features = ["bitcoin_hashes", "global-context", "serde"] }
 thiserror = "1"
