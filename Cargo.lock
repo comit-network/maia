@@ -59,6 +59,24 @@ dependencies = [
 ]
 
 [[package]]
+name = "bdk"
+version = "0.20.0"
+source = "registry+https://github.com/rust-lang/crates.io-index"
+checksum = "5a0becbf5a97855daca6717ff920c52a779cebf655b23ae1427e5366d2661e82"
+dependencies = [
+ "async-trait",
+ "bdk-macros",
+ "bitcoin",
+ "js-sys",
+ "log",
+ "miniscript",
+ "rand 0.7.3",
+ "serde",
+ "serde_json",
+ "tokio",
+]
+
+[[package]]
 name = "bdk-macros"
 version = "0.6.0"
 source = "registry+https://github.com/rust-lang/crates.io-index"
@@ -239,7 +257,7 @@ name = "maia"
 version = "0.2.0"
 dependencies = [
  "anyhow",
- "bdk",
+ "bdk 0.19.0",
  "bitcoin",
  "itertools",
  "maia-core 0.1.1 (git+https://github.com/comit-network/maia?tag=0.1.1)",
@@ -254,7 +272,7 @@ name = "maia-core"
 version = "0.1.1"
 dependencies = [
  "anyhow",
- "bdk",
+ "bdk 0.20.0",
  "bit-vec",
  "bitcoin",
  "proptest",
@@ -268,7 +286,7 @@ version = "0.1.1"
 source = "git+https://github.com/comit-network/maia?tag=0.1.1#e1354e9c0397326a99bb5068e3afbc8cf2e07a9d"
 dependencies = [
  "anyhow",
- "bdk",
+ "bdk 0.19.0",
  "bit-vec",
  "secp256k1-zkp",
  "thiserror",
