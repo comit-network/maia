@@ -713,7 +713,7 @@ fn check_cfd_txs(
                 |Cets {
                      event: other_event,
                      cets,
-                 }| (other_event.id == event.id).then(|| cets),
+                 }| (other_event.id == event.id).then_some(cets),
             )
             .expect("same events for taker and maker");
 
@@ -749,7 +749,7 @@ fn check_cfd_txs(
                 |Cets {
                      event: other_event,
                      cets,
-                 }| (other_event.id == event.id).then(|| cets),
+                 }| (other_event.id == event.id).then_some(cets),
             )
             .expect("same events for taker and maker");
 
