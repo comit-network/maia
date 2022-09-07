@@ -14,7 +14,7 @@ const MAX_DIGITS: usize = 20;
 const BASE: usize = 2;
 
 /// Binary representation of a price interval.
-#[derive(Clone, Debug, PartialEq)]
+#[derive(Clone, Debug, PartialEq, Eq)]
 pub struct Digits {
     inner: BitVec,
 
