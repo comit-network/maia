@@ -42,9 +42,9 @@ dependencies = [
 
 [[package]]
 name = "bdk"
-version = "0.21.0"
+version = "0.22.0"
 source = "registry+https://github.com/rust-lang/crates.io-index"
-checksum = "3a7dad109193db0d196e9149bb56ba991aacfc1e1a2cf400053358b75f6c2fb5"
+checksum = "14836e8b1312be32e46f5da47e1189c2239fa75f9237a0a7c7aea9ee7071a2bc"
 dependencies = [
  "async-trait",
  "bdk-macros",
@@ -236,7 +236,7 @@ dependencies = [
 
 [[package]]
 name = "maia"
-version = "0.2.0"
+version = "0.2.1"
 dependencies = [
  "anyhow",
  "bdk",
@@ -251,7 +251,7 @@ dependencies = [
 
 [[package]]
 name = "maia-core"
-version = "0.1.1"
+version = "0.1.2"
 dependencies = [
  "anyhow",
  "bdk",

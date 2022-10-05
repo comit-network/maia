@@ -1,11 +1,11 @@
 [package]
 name = "maia"
-version = "0.2.0"
+version = "0.2.1"
 edition = "2021"
 
 [dependencies]
 anyhow = "1"
-bdk = { version = "0.21.0", default-features = false }
+bdk = { version = "0.22.0", default-features = false }
 itertools = "0.10"
 maia-core = { path = "../maia-core" }
 rand = "0.6"

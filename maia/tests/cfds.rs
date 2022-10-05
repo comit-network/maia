@@ -4,7 +4,7 @@ use bdk::bitcoin::{Address, Amount, Network, PrivateKey, PublicKey, Transaction,
 use bdk::descriptor::Descriptor;
 use bdk::miniscript::DescriptorTrait;
 use bdk::wallet::AddressIndex;
-use bdk::{FeeRate, SignOptions};
+use bdk::{BlockTime, FeeRate, SignOptions};
 use bitcoin::util::psbt::PartiallySignedTransaction;
 use maia::{
     close_transaction, commit_descriptor, compute_adaptor_pk, create_cfd_transactions,
