@@ -236,7 +236,7 @@ dependencies = [
 
 [[package]]
 name = "maia"
-version = "0.2.0"
+version = "0.2.1"
 dependencies = [
  "anyhow",
  "bdk",
@@ -251,7 +251,7 @@ dependencies = [
 
 [[package]]
 name = "maia-core"
-version = "0.1.1"
+version = "0.1.2"
 dependencies = [
  "anyhow",
  "bdk",
