@@ -25,7 +25,7 @@ fn schnorr_pubkey_to_pubkey(pk: &XOnlyPublicKey) -> secp256k1_zkp::PublicKey {
     let mut buf = Vec::<u8>::with_capacity(33);
 
     buf.push(0x02); // append even byte
-    buf.extend(&pk.serialize());
+    buf.extend(pk.serialize());
 
     secp256k1_zkp::PublicKey::from_slice(&buf).expect("valid key")
 }
