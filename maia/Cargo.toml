@@ -5,7 +5,7 @@ edition = "2021"
 
 [dependencies]
 anyhow = "1"
-bdk = { version = "0.22.0", default-features = false }
+bdk = { version = "0.23.0", default-features = false }
 itertools = "0.10"
 maia-core = { path = "../maia-core" }
 rand = "0.6"
@@ -13,5 +13,5 @@ secp256k1-zkp = { version = "0.6", features = ["bitcoin_hashes", "global-context
 thiserror = "1"
 
 [dev-dependencies]
-bitcoin = { version = "0.28.1", features = ["rand", "bitcoinconsensus"] }
+bitcoin = { version = "0.29.1", features = ["rand", "bitcoinconsensus"] }
 proptest = { version = "1", default-features = false, features = ["std"] }
