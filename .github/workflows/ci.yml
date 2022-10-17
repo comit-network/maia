@@ -31,7 +31,7 @@ jobs:
           override: true
           components: clippy
           profile: minimal
-      - uses: Swatinem/rust-cache@v2.0.0
+      - uses: Swatinem/rust-cache@v2.0.1
       - run: cargo clippy --workspace --all-targets -- -D warnings
 
   msrv:
@@ -43,7 +43,7 @@ jobs:
           toolchain: 1.56.0
           override: true
           profile: minimal
-      - uses: Swatinem/rust-cache@v2.0.0
+      - uses: Swatinem/rust-cache@v2.0.1
       - run: cargo build
 
   tests:
@@ -64,6 +64,6 @@ jobs:
           override: true
           components: clippy
           profile: minimal
-      - uses: Swatinem/rust-cache@v2.0.0
+      - uses: Swatinem/rust-cache@v2.0.1
       - run: cargo build --tests
       - run: cargo test --workspace
