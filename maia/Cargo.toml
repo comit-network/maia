@@ -5,7 +5,7 @@ edition = "2021"
 
 [dependencies]
 anyhow = "1"
-bdk = { version = "0.23.0", default-features = false }
+bdk = { version = "0.25.0", default-features = false }
 itertools = "0.10"
 maia-core = { path = "../maia-core" }
 rand = "0.6"
